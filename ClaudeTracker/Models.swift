@@ -8,6 +8,15 @@ func urgencyColor(_ urgency: Double) -> Color {
     return Color(hue: 0.33 * (1 - t), saturation: 0.85, brightness: 0.9)
 }
 
+/// Shared 3-band color for pace UI (rate text, outlook message, chart projection line).
+/// `proj` is projected hours to 100%; `hoursToReset` is time until window reset.
+func paceUrgencyColor(proj: Double, hoursToReset: Double) -> Color {
+    guard proj > 0, hoursToReset > 0 else { return .secondary }
+    if proj >= hoursToReset { return .secondary }
+    if proj >= hoursToReset * 0.8 { return urgencyColor(0.7) }
+    return urgencyColor(1.0)
+}
+
 /// Returns true when `remote` is a higher semantic version than `current`.
 /// Uses `.numeric` comparison so "1.10.0" > "1.9.0".
 func isNewerVersion(_ remote: String, than current: String) -> Bool {

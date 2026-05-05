@@ -436,11 +436,10 @@ struct MenuBarView: View {
 
     private func forecastAccentColor(paceRate: Double?, lastVal: Double, lastDate: Date?, resetDate: Date) -> Color {
         guard let rate = paceRate, lastVal < 100, lastDate != nil else { return .secondary }
-        let projHrs = (100.0 - lastVal) / rate
-        let hrsToReset = max(resetDate.timeIntervalSinceNow / 3600, 0)
-        if hrsToReset == 0 || projHrs >= hrsToReset { return .secondary }
-        if projHrs >= hrsToReset * 0.8 { return urgencyColor(0.7) }
-        return urgencyColor(1.0)
+        return paceUrgencyColor(
+            proj: (100.0 - lastVal) / rate,
+            hoursToReset: resetDate.timeIntervalSinceNow / 3600
+        )
     }
 
     @ViewBuilder
@@ -935,6 +934,7 @@ struct UsageWindowView: View {
 
     private func paceOutlook(proj: Double, hoursToReset: Double) -> (String, LocalizedStringKey, Color) {
         let seed = abs(Int(window.resetsAtDate?.timeIntervalSince1970 ?? 0))
+        let color = paceUrgencyColor(proj: proj, hoursToReset: hoursToReset)
 
         if proj >= hoursToReset {
             let messages: [LocalizedStringKey] = [
@@ -944,7 +944,7 @@ struct UsageWindowView: View {
                 "Safe — usage resets before full",
                 "No rush — plenty of time left",
             ]
-            return ("checkmark.circle", messages[seed % messages.count], Color.secondary)
+            return ("checkmark.circle", messages[seed % messages.count], color)
         } else if proj >= hoursToReset * 0.8 {
             let messages: [LocalizedStringKey] = [
                 "Getting close — may hit limit",
@@ -953,7 +953,7 @@ struct UsageWindowView: View {
                 "Almost at the edge — ease up",
                 "Trending toward the limit",
             ]
-            return ("exclamationmark.circle", messages[seed % messages.count], urgencyColor(0.7))
+            return ("exclamationmark.circle", messages[seed % messages.count], color)
         } else {
             let early = hoursToReset - proj
             let timeStr = early < 1
@@ -965,17 +965,15 @@ struct UsageWindowView: View {
                 "On pace to fill \(timeStr) early",
                 "Full \(timeStr) before window resets",
             ]
-            return ("exclamationmark.triangle.fill", messages[seed % messages.count], urgencyColor(1.0))
+            return ("exclamationmark.triangle.fill", messages[seed % messages.count], color)
         }
     }
 
     private func paceLine(rate: Double) -> some View {
-        let urgency: Double = {
-            guard let proj = projectedHours, proj > 0,
-                  let resetDate = window.resetsAtDate else { return 0 }
-            let hoursToReset = resetDate.timeIntervalSinceNow / 3600
-            guard hoursToReset > 0 else { return 0 }
-            return min(hoursToReset / proj, 1.0)
+        let color: Color = {
+            guard let proj = projectedHours,
+                  let resetDate = window.resetsAtDate else { return .secondary }
+            return paceUrgencyColor(proj: proj, hoursToReset: resetDate.timeIntervalSinceNow / 3600)
         }()
 
         let rateText = paceRateUnit.format(rate, prefix: true)
@@ -995,6 +993,6 @@ struct UsageWindowView: View {
             Text([rateText, projText].compactMap { $0 }.joined(separator: " "))
         }
         .font(sf(11))
-        .foregroundStyle(urgency > 0 ? urgencyColor(urgency) : Color.secondary)
+        .foregroundStyle(color)
     }
 }
