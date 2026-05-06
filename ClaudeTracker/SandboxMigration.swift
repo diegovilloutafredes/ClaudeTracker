@@ -81,9 +81,13 @@ enum SandboxMigration {
         var copied = 0
         for src in entries {
             let dst = targetStores.appendingPathComponent(src.lastPathComponent)
-            // If we already have a non-empty data store at the destination, leave
-            // it alone — the running session is more recent than the container.
-            if fm.fileExists(atPath: dst.path) { continue }
+            // The migration runs exactly once (gated by `doneKey`), so if a
+            // destination already exists it's stale — from a prior non-sandboxed
+            // run before the app was ever sandboxed. The container is the
+            // canonical source of truth, so always overwrite.
+            if fm.fileExists(atPath: dst.path) {
+                try? fm.removeItem(at: dst)
+            }
             do {
                 try fm.copyItem(at: src, to: dst)
                 copied += 1
