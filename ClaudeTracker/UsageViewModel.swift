@@ -354,6 +354,16 @@ final class UsageViewModel {
         AccountStore.saveActiveID(id)
         buildActiveService(for: acct)
         AppLogger.shared.info("switched active account to \(acct.label) (\(id.uuidString.prefix(8)))")
+        // If the new account has a Claude Code CLI token saved, also flip the
+        // CLI's active credential slot so subsequent `claude` invocations use it.
+        if acct.claudeCodeLinked {
+            do {
+                try ClaudeCodeKeychain.switchTo(id: acct.id)
+                AppLogger.shared.info("Claude Code CLI switched to \(acct.label)")
+            } catch {
+                AppLogger.shared.error("Claude Code CLI switch failed: \(error)")
+            }
+        }
         startSession()
     }
 
@@ -408,6 +418,7 @@ final class UsageViewModel {
         accounts.removeAll { $0.id == id }
         statesByAccount.removeValue(forKey: id)
         UserDefaults.standard.removeObject(forKey: AccountStore.usageHistoryKey(for: id))
+        ClaudeCodeKeychain.remove(id: id)
         AccountStore.saveAccounts(accounts)
         if let dataStoreID {
             WKWebsiteDataStore.remove(forIdentifier: dataStoreID) { err in
@@ -445,6 +456,42 @@ final class UsageViewModel {
     /// currently active account.
     func signOut() {
         if let id = activeAccountID { removeAccount(id) }
+    }
+
+    // MARK: - Claude Code CLI integration
+
+    /// Captures the currently-active Claude Code CLI OAuth token (whatever the user just
+    /// `/login`'d as) and saves a per-account copy so this ClaudeTracker account can later
+    /// activate it via `switchAccount`. The user is expected to have just signed into the
+    /// matching Claude account in the CLI before tapping Link.
+    /// Returns nil on success, or a human-readable error message on failure.
+    @discardableResult
+    func linkClaudeCode(_ id: UUID) -> String? {
+        guard let idx = accounts.firstIndex(where: { $0.id == id }) else { return "Account not found." }
+        do {
+            try ClaudeCodeKeychain.saveActiveTokenAs(id: id)
+            var copy = accounts
+            copy[idx].claudeCodeLinked = true
+            accounts = copy
+            AccountStore.saveAccounts(accounts)
+            AppLogger.shared.info("Claude Code linked: \(accounts[idx].label) (\(id.uuidString.prefix(8)))")
+            return nil
+        } catch {
+            AppLogger.shared.error("Claude Code link failed: \(error)")
+            return String(describing: error)
+        }
+    }
+
+    /// Forgets the saved per-account CLI token. The active CLI slot is untouched —
+    /// whoever the CLI is currently logged in as remains active.
+    func unlinkClaudeCode(_ id: UUID) {
+        guard let idx = accounts.firstIndex(where: { $0.id == id }) else { return }
+        ClaudeCodeKeychain.remove(id: id)
+        var copy = accounts
+        copy[idx].claudeCodeLinked = false
+        accounts = copy
+        AccountStore.saveAccounts(accounts)
+        AppLogger.shared.info("Claude Code unlinked: \(accounts[idx].label)")
     }
 
     // MARK: - Migration
