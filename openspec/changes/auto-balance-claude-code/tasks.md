@@ -37,11 +37,11 @@
 
 ## 7. Settings UI
 
-- [ ] 7.1 In `SettingsView.swift`, add a new "Auto-balance Claude Code" section visible only when `viewModel.accounts.filter { $0.claudeCodeLinked }.count >= 2`.
-- [ ] 7.2 Add strategy picker (Picker with three cases: Manual / Prioritize / Balance). On change, update `viewModel.balanceSettings.strategy` and persist.
-- [ ] 7.3 Conditional sub-controls: when Prioritize selected, show "Preferred account" picker (linked accounts only) and "Switch when above" slider (50–95%, default 80%). When Balance selected, show "Switch threshold" stepper (1–25 pp, default 8).
-- [ ] 7.4 Add one `Toggle` for the shell-hook trigger: "When you run `claude` (recommended)". Default off. Use `GreenSwitchStyle` per the project constraint in `CLAUDE.md`. (Continuous toggle dropped per task 1.1 finding — would silently break running `claude` sessions.)
-- [ ] 7.5 Add a small info caption under the toggle: "Requires installing the `claude-balance` shell hook — see Help."
+- [x] 7.1 In `SettingsView.swift`, add a new "Auto-balance Claude Code" section visible only when `viewModel.accounts.filter { $0.claudeCodeLinked }.count >= 2`.
+- [x] 7.2 Add strategy picker (Picker with three cases: Manual / Prioritize / Balance). On change, update `viewModel.balanceSettings.strategy` and persist.
+- [x] 7.3 Conditional sub-controls: when Prioritize selected, show "Preferred account" picker (linked accounts only) and "Switch when above" slider (50–95%, default 80%). When Balance selected, show "Switch threshold" stepper (1–25 pp, default 8).
+- [x] 7.4 Add one `Toggle` for the shell-hook trigger: "When you run `claude` (recommended)". Default off. Use `GreenSwitchStyle` per the project constraint in `CLAUDE.md`. (Continuous toggle dropped per task 1.1 finding — would silently break running `claude` sessions.)
+- [x] 7.5 Add a small info caption under the toggle: "Requires installing the `claude-balance` shell hook — see Help."
 
 ## 8. Shell hook CLI
 
