@@ -81,7 +81,13 @@ struct SettingsView: View {
                 emptyAccountRow
             } else {
                 ForEach(viewModel.accounts) { account in
-                    accountRow(account)
+                    // Compute isActive in the parent body so the @Observable read of
+                    // `activeAccountID` happens here. Passing the bool as a parameter
+                    // makes the row depend on its inputs rather than relying on
+                    // SwiftUI's tracking to flow through an extracted method —
+                    // otherwise the open Settings window doesn't redraw on switch
+                    // until you close + reopen it.
+                    accountRow(account, isActive: account.id == viewModel.activeAccountID)
                 }
             }
 
@@ -163,8 +169,7 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func accountRow(_ account: Account) -> some View {
-        let isActive = (account.id == viewModel.activeAccountID)
+    private func accountRow(_ account: Account, isActive: Bool) -> some View {
         HStack(alignment: .center, spacing: 10) {
             Circle()
                 .fill(isActive ? Color.green : Color.secondary.opacity(0.4))
