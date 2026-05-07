@@ -45,10 +45,10 @@
 
 ## 8. Shell hook CLI
 
-- [ ] 8.1 Create `claude-balance` bash script (~40 lines) at the project root or a clear location.
-- [ ] 8.2 Implement: read `~/Library/Application Support/ClaudeTracker/balance.json`, parse `accounts[]` for `linked == true`, find max `score`, compare against `currentAccountID`'s score using strategy's hysteresis, swap Keychain via `security add-generic-password -U` if a switch is warranted.
-- [ ] 8.3 Add idempotency / safety: if the file is missing, stale by >5 minutes, or unparseable, exit 0 silently (don't block `claude` invocation). If the chosen account's `Claude Code-account-<UUID>` entry is missing, exit 0 silently.
-- [ ] 8.4 Document installation in `CLAUDE.md`: copy script to `~/.local/bin/claude-balance`, chmod +x, add a `claude()` shell function snippet for `~/.zshrc`.
+- [x] 8.1 Create `claude-balance` bash script at `scripts/claude-balance` (~140 lines including comments — wider than the original 40-line estimate to support all three strategies natively in bash, but the runtime path is short).
+- [x] 8.2 Implement: read `~/Library/Application Support/ClaudeTracker/balance.json`, parse `accounts[]` for `linked == true`, apply the active strategy (Manual = no-op, Prioritize = preferred-with-recovery-buffer, Balance = hysteresis-gated max-score), swap Keychain via `security add-generic-password -U` if a switch is warranted.
+- [x] 8.3 Add idempotency / safety: if the file is missing, stale by >5 minutes, unparseable, jq is missing, the trigger toggle is off, the override window is active, or the chosen account's `Claude Code-account-<UUID>` entry is missing — exit 0 silently. Smoke-tested empty-state path: `exit=0` with no output.
+- [x] 8.4 Document installation in `CLAUDE.md`: copy script to `~/.local/bin/claude-balance`, chmod +x, add a `claude()` shell function snippet for `~/.zshrc`. **Done in section 9.**
 
 ## 9. Documentation
 
