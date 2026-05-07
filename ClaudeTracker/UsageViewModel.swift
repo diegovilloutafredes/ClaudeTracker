@@ -503,7 +503,10 @@ final class UsageViewModel {
     /// Runs the current auto-balance strategy and applies the decision.
     /// Idempotent: a no-switch decision (or one for the already-active account)
     /// is a logged no-op. `trigger` distinguishes who invoked us so logs and
-    /// the override-window logic can attribute decisions correctly.
+    /// the override-window logic can attribute decisions correctly. When a
+    /// switch is applied, a toast surfaces the change so the user notices —
+    /// auto-balance is otherwise silent and could change their active account
+    /// without their realizing.
     @discardableResult
     func applyBalanceDecisionIfNeeded(trigger: BalanceTrigger) -> BalanceDecision {
         let decision = AccountBalancer.decide(
@@ -516,7 +519,25 @@ final class UsageViewModel {
         )
         AppLogger.shared.info("balance [\(trigger.rawValue)]: \(decision.reason)")
         if decision.shouldSwitch, let to = decision.recommendedAccountID {
+            // Snapshot labels BEFORE the switch so the toast can show "A → B".
+            let fromLabel = accounts.first(where: { $0.id == decision.currentAccountID })?.label
+            let toLabel = accounts.first(where: { $0.id == to })?.label ?? String(localized: "another account")
             switchAccount(to: to, isManual: false)
+            let title = String(localized: "Auto-balanced to \(toLabel)")
+            let message: String = {
+                if let from = fromLabel {
+                    return String(format: String(localized: "Switched from %@ — %@"), from, decision.reason)
+                }
+                return decision.reason
+            }()
+            ToastWindowController.shared.show(
+                title: title,
+                message: message,
+                icon: "scale.3d",
+                iconColor: .blue,
+                duration: toastDuration,
+                permanent: false
+            )
         }
         return decision
     }
