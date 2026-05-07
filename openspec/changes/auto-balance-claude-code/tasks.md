@@ -10,12 +10,12 @@
 
 ## 3. Pure decision module
 
-- [ ] 3.1 Create `ClaudeTracker/AccountBalancer.swift` with `BalanceDecision` struct (`recommendedAccountID`, `currentAccountID`, `scoreDiff`, `reason`, `triggerSource`, `shouldSwitch`).
-- [ ] 3.2 Implement `AccountBalancer.scoreAccount(state:)` returning `(slack: Double, pacePenalty: Double, resetBonus: Double, total: Double)`. Call sites use named tuple components for logging.
-- [ ] 3.3 Implement `AccountBalancer.decideManual()` — always returns `BalanceDecision` with `shouldSwitch == false`.
-- [ ] 3.4 Implement `AccountBalancer.decidePrioritize(preferredID:threshold:accounts:states:currentlyActive:)` — uses preferred unless its worst-window utilization > threshold OR pace warning; switches back only when preferred drops below `threshold - 5pp` AND no longer in pace warning.
-- [ ] 3.5 Implement `AccountBalancer.decideBalance(hysteresis:accounts:states:currentlyActive:)` — picks max-score linked account; `shouldSwitch == true` iff `bestScore - currentScore > hysteresis`.
-- [ ] 3.6 Implement `AccountBalancer.decide(strategy:accounts:states:currentlyActive:lastManualSwitch:trigger:now:)` — top-level dispatch. Short-circuits to no-switch when `now.timeIntervalSince(lastManualSwitch) < 300` regardless of strategy.
+- [x] 3.1 Create `ClaudeTracker/AccountBalancer.swift` with `BalanceDecision` struct (`recommendedAccountID`, `currentAccountID`, `scoreDiff`, `reason`, `triggerSource`, `shouldSwitch`).
+- [x] 3.2 Implement `AccountBalancer.scoreAccount(state:)` returning `(slack: Double, pacePenalty: Double, resetBonus: Double, total: Double)`. Call sites use named tuple components for logging.
+- [x] 3.3 Implement `AccountBalancer.decideManual()` — always returns `BalanceDecision` with `shouldSwitch == false`.
+- [x] 3.4 Implement `AccountBalancer.decidePrioritize(preferredID:threshold:accounts:states:currentlyActive:)` — uses preferred unless its worst-window utilization > threshold OR pace warning; switches back only when preferred drops below `threshold - 5pp` AND no longer in pace warning.
+- [x] 3.5 Implement `AccountBalancer.decideBalance(hysteresis:accounts:states:currentlyActive:)` — picks max-score linked account; `shouldSwitch == true` iff `bestScore - currentScore > hysteresis`.
+- [x] 3.6 Implement `AccountBalancer.decide(strategy:accounts:states:currentlyActive:lastManualSwitch:trigger:now:)` — top-level dispatch. Short-circuits to no-switch when `now.timeIntervalSince(lastManualSwitch) < 300` regardless of strategy.
 
 ## 4. State export
 
