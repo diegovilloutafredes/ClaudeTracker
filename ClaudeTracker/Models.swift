@@ -402,6 +402,52 @@ enum AccountStore {
     }
 }
 
+// MARK: - Auto-Balance Strategy
+
+/// Which selection strategy decides the active Claude Code account.
+/// Associated values keep per-strategy parameters bound to the case that uses them,
+/// so switching modes can't leave dangling settings (e.g. a stale `preferredID`
+/// still in effect when Balance is selected).
+enum BalanceStrategy: Codable, Hashable {
+    case manual
+    case prioritize(preferredID: UUID, threshold: Double)
+    case balance(hysteresis: Double)
+}
+
+/// All persisted auto-balance settings. The Continuous in-app trigger was
+/// considered and dropped after a smoke test showed that writing the
+/// `Claude Code-credentials` Keychain slot mid-session causes the next
+/// `claude` request to fail with 401 — see `design.md` Risks for details.
+/// Only `triggerOnClaude` (shell hook) ships; the popover Manual button
+/// is always available when ≥2 accounts are linked.
+struct BalanceSettings: Codable {
+    var strategy: BalanceStrategy
+    var triggerOnClaude: Bool
+    var lastManualSwitch: Date?
+}
+
+/// UserDefaults helper for `BalanceSettings`. Persisted as JSON under
+/// `"balanceSettings"`. Default-load returns Manual / shell-hook off /
+/// no manual-switch timestamp — preserves existing behavior for users who
+/// haven't opted in.
+enum BalanceSettingsStore {
+    static let key = "balanceSettings"
+
+    static func load() -> BalanceSettings {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode(BalanceSettings.self, from: data) else {
+            return BalanceSettings(strategy: .manual, triggerOnClaude: false, lastManualSwitch: nil)
+        }
+        return decoded
+    }
+
+    static func save(_ s: BalanceSettings) {
+        if let data = try? JSONEncoder().encode(s) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+}
+
 /// A newer version discovered via the GitHub Releases API.
 struct UpdateInfo {
     let version: String

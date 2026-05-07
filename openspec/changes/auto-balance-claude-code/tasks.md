@@ -4,9 +4,9 @@
 
 ## 2. Models and persistence
 
-- [ ] 2.1 Add `BalanceStrategy` enum to `Models.swift`: `case manual`, `case prioritize(preferredID: UUID, threshold: Double)`, `case balance(hysteresis: Double)`, with `Codable` synthesis.
-- [ ] 2.2 Add `BalanceSettings` struct in `Models.swift` holding the strategy + trigger flag (`triggerOnClaude: Bool`) + `lastManualSwitch: Date?`. Codable, persisted as JSON under `balanceSettings`. (No `triggerContinuous` — Continuous trigger dropped per task 1.1 finding.)
-- [ ] 2.3 Add `BalanceSettingsStore` enum in `Models.swift` with `load() -> BalanceSettings` and `save(_:)`, mirroring the pattern of `AccountStore`. Default-load returns `BalanceSettings(strategy: .manual, triggerOnClaude: false, lastManualSwitch: nil)`.
+- [x] 2.1 Add `BalanceStrategy` enum to `Models.swift`: `case manual`, `case prioritize(preferredID: UUID, threshold: Double)`, `case balance(hysteresis: Double)`, with `Codable` synthesis.
+- [x] 2.2 Add `BalanceSettings` struct in `Models.swift` holding the strategy + trigger flag (`triggerOnClaude: Bool`) + `lastManualSwitch: Date?`. Codable, persisted as JSON under `balanceSettings`. (No `triggerContinuous` — Continuous trigger dropped per task 1.1 finding.)
+- [x] 2.3 Add `BalanceSettingsStore` enum in `Models.swift` with `load() -> BalanceSettings` and `save(_:)`, mirroring the pattern of `AccountStore`. Default-load returns `BalanceSettings(strategy: .manual, triggerOnClaude: false, lastManualSwitch: nil)`.
 
 ## 3. Pure decision module
 
