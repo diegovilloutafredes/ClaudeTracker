@@ -52,9 +52,9 @@
 
 ## 9. Documentation
 
-- [ ] 9.1 Update `CLAUDE.md` Architecture section: add `AccountBalancer.swift` entry describing strategies, decision pure-function pattern, and the three trigger surfaces.
-- [ ] 9.2 Update `CLAUDE.md` to mention the new UserDefaults key (`balanceSettings`), the new on-disk export (`balance.json`), and the `claude-balance` shell hook.
-- [ ] 9.3 Add a "Key Constraints" entry noting that `switchAccount(to:)` must distinguish manual vs. auto-balance callers via the `isManual:` parameter, and that the 5-minute override window depends on this distinction being correct.
+- [x] 9.1 Update `CLAUDE.md` Architecture section: add `AccountBalancer.swift` entry describing strategies, decision pure-function pattern, and the trigger surfaces.
+- [x] 9.2 Update `CLAUDE.md` to mention the new UserDefaults key (`balanceSettings`), the new on-disk export (`balance.json`), and the `claude-balance` shell hook with installation steps.
+- [x] 9.3 Add a "Key Constraints" entry noting that `switchAccount(to:)` must distinguish manual vs. auto-balance callers via the `isManual:` parameter, and that the 5-minute override window depends on this distinction being correct. (Folded into the "Auto-balance trigger model" paragraph in CLAUDE.md.)
 
 ## 10. Verification
 
