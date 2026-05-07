@@ -271,6 +271,85 @@ enum AccountBalancer {
         )
     }
 
+    // MARK: - State export
+
+    /// Snapshot of one account's data for `balance.json`. Pre-computed score
+    /// fields mean the shell hook never re-implements scoring — it just picks
+    /// the highest `score` of `linked == true` entries and applies its strategy
+    /// (which is also embedded in the file).
+    private struct ExportedAccount: Codable {
+        let id: UUID
+        let label: String
+        let linked: Bool
+        let fiveHourLeft: Double?
+        let sevenDayLeft: Double?
+        let opusLeft: Double?
+        let sonnetLeft: Double?
+        let paceProjectedHours: Double?
+        let anyResetWithin30min: Bool
+        let score: Double
+    }
+
+    /// Export envelope written to `~/Library/Application Support/ClaudeTracker/balance.json`.
+    private struct Exported: Codable {
+        let exportedAt: Date
+        let currentAccountID: UUID?
+        let strategy: BalanceStrategy
+        let lastManualSwitch: Date?
+        let triggerOnClaude: Bool
+        let accounts: [ExportedAccount]
+    }
+
+    /// Serializes per-account scores + current settings to the JSON consumed
+    /// by the `claude-balance` shell hook. Atomic write happens at the call
+    /// site (UsageViewModel.exportBalanceState) — this function is pure.
+    static func exportState(settings: BalanceSettings,
+                            accounts: [Account],
+                            states: [UUID: AccountState],
+                            currentlyActive: UUID?,
+                            now: Date = Date()) -> Data {
+        let exported = accounts.map { acct -> ExportedAccount in
+            let state = states[acct.id]
+            let usage = state?.usage
+            let score = state.flatMap { scoreAccount(state: $0, now: now) }
+            let pace = state.flatMap { worstPaceProjection(state: $0) }
+            let resetSoon: Bool = {
+                guard let usage = usage else { return false }
+                let windows: [UsageWindow?] = [usage.fiveHour, usage.sevenDay, usage.sevenDayOpus, usage.sevenDaySonnet]
+                for w in windows {
+                    guard let date = w?.resetsAtDate else { continue }
+                    let minutesUntil = date.timeIntervalSince(now) / 60
+                    if minutesUntil > 0 && minutesUntil < resetBonusWindowMinutes { return true }
+                }
+                return false
+            }()
+            return ExportedAccount(
+                id: acct.id,
+                label: acct.label,
+                linked: acct.claudeCodeLinked,
+                fiveHourLeft: usage?.fiveHour.map { 100 - $0.utilization },
+                sevenDayLeft: usage?.sevenDay.map { 100 - $0.utilization },
+                opusLeft: usage?.sevenDayOpus.map { 100 - $0.utilization },
+                sonnetLeft: usage?.sevenDaySonnet.map { 100 - $0.utilization },
+                paceProjectedHours: pace,
+                anyResetWithin30min: resetSoon,
+                score: score?.total ?? 0
+            )
+        }
+        let envelope = Exported(
+            exportedAt: now,
+            currentAccountID: currentlyActive,
+            strategy: settings.strategy,
+            lastManualSwitch: settings.lastManualSwitch,
+            triggerOnClaude: settings.triggerOnClaude,
+            accounts: exported
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        return (try? encoder.encode(envelope)) ?? Data()
+    }
+
     // MARK: - Top-level dispatch
 
     /// Top-level entry point. Honors the 5-minute manual-override window

@@ -19,15 +19,15 @@
 
 ## 4. State export
 
-- [ ] 4.1 Implement `AccountBalancer.exportState(settings:accounts:states:currentlyActive:)` returning `Data` containing the JSON described in `design.md` Decision 6.
-- [ ] 4.2 Add `UsageViewModel.exportBalanceState()` that writes the export to `~/Library/Application Support/ClaudeTracker/balance.json` via `Data.write(to:options:.atomic)`. Creates parent directories as needed.
-- [ ] 4.3 Wire `exportBalanceState()` into the end of `fetchUsage(...)` so the file refreshes after each successful poll.
+- [x] 4.1 Implement `AccountBalancer.exportState(settings:accounts:states:currentlyActive:)` returning `Data` containing the JSON described in `design.md` Decision 6.
+- [x] 4.2 Add `UsageViewModel.exportBalanceState()` that writes the export to `~/Library/Application Support/ClaudeTracker/balance.json` via `Data.write(to:options:.atomic)`. Creates parent directories as needed.
+- [x] 4.3 Wire `exportBalanceState()` into the end of `fetchUsage(...)` so the file refreshes after each successful poll.
 
 ## 5. ViewModel integration
 
-- [ ] 5.1 Add `var balanceSettings: BalanceSettings` to `UsageViewModel`, loaded in `init()` via `BalanceSettingsStore.load()` (deferred to the same post-init Task that handles other UserDefaults reads to avoid the `NSApp` nil-at-init issue).
-- [ ] 5.2 Add `applyBalanceDecisionIfNeeded(trigger:)` method that calls `AccountBalancer.decide(...)` with current state, switches the active account if `decision.shouldSwitch`, and logs via the format in spec Requirement "All balance decisions are logged for audit".
-- [ ] 5.3 Stamp `balanceSettings.lastManualSwitch = Date()` and persist whenever `switchAccount(to:)` is called from a UI source (popover, Settings); not when called from auto-balance itself. Pass an `isManual: Bool` parameter, defaulting to `true`, with auto-balance code paths passing `false`. (Section 5.3 originally was the Continuous-trigger wiring — dropped per task 1.1 finding; this slot reused for the manual-switch timestamping.)
+- [x] 5.1 Add `var balanceSettings: BalanceSettings` to `UsageViewModel`, loaded in `init()` via `BalanceSettingsStore.load()` (deferred to the same post-init Task that handles other UserDefaults reads to avoid the `NSApp` nil-at-init issue).
+- [x] 5.2 Add `applyBalanceDecisionIfNeeded(trigger:)` method that calls `AccountBalancer.decide(...)` with current state, switches the active account if `decision.shouldSwitch`, and logs via the format in spec Requirement "All balance decisions are logged for audit".
+- [x] 5.3 Stamp `balanceSettings.lastManualSwitch = Date()` and persist whenever `switchAccount(to:)` is called from a UI source (popover, Settings); not when called from auto-balance itself. Pass an `isManual: Bool` parameter, defaulting to `true`, with auto-balance code paths passing `false`. (Section 5.3 originally was the Continuous-trigger wiring — dropped per task 1.1 finding; this slot reused for the manual-switch timestamping.)
 
 ## 6. Popover UI
 
