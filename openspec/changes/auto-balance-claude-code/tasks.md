@@ -31,9 +31,9 @@
 
 ## 6. Popover UI
 
-- [ ] 6.1 In `MenuBarView.swift`, add a "Balance" button next to the existing account picker chevron when `viewModel.accounts.filter { $0.claudeCodeLinked }.count >= 2`.
-- [ ] 6.2 Wire the button to call `viewModel.applyBalanceDecisionIfNeeded(trigger: .manualButton)`.
-- [ ] 6.3 Visually disable the button when current strategy is Manual (or hide; design.md and spec leave this open — pick "disabled with tooltip explaining why").
+- [x] 6.1 In `MenuBarView.swift`, add a "Balance" button next to the existing account picker chevron when `viewModel.accounts.filter { $0.claudeCodeLinked }.count >= 2`.
+- [x] 6.2 Wire the button to call `viewModel.applyBalanceDecisionIfNeeded(trigger: .manualButton)`.
+- [x] 6.3 Visually disable the button when current strategy is Manual (or hide; design.md and spec leave this open — pick "disabled with tooltip explaining why"). **Picked "hide"** — a disabled button that does nothing under Manual is worse UX than no button. The Settings strategy picker is the discoverability path.
 
 ## 7. Settings UI
 
