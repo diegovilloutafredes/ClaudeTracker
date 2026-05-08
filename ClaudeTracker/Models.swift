@@ -301,19 +301,35 @@ struct Account: Codable, Identifiable, Hashable {
     var subscriptionLabel: String?
     let dataStoreIdentifier: UUID
     let addedAt: Date
+    /// True iff a Claude Code CLI OAuth token has been saved under this account.
+    /// Decoded with `decodeIfPresent` so existing pre-migration accounts default to false.
+    var claudeCodeLinked: Bool
 
     init(id: UUID = UUID(),
          label: String,
          email: String? = nil,
          subscriptionLabel: String? = nil,
          dataStoreIdentifier: UUID = UUID(),
-         addedAt: Date = Date()) {
+         addedAt: Date = Date(),
+         claudeCodeLinked: Bool = false) {
         self.id = id
         self.label = label
         self.email = email
         self.subscriptionLabel = subscriptionLabel
         self.dataStoreIdentifier = dataStoreIdentifier
         self.addedAt = addedAt
+        self.claudeCodeLinked = claudeCodeLinked
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(UUID.self, forKey: .id)
+        self.label = try c.decode(String.self, forKey: .label)
+        self.email = try c.decodeIfPresent(String.self, forKey: .email)
+        self.subscriptionLabel = try c.decodeIfPresent(String.self, forKey: .subscriptionLabel)
+        self.dataStoreIdentifier = try c.decode(UUID.self, forKey: .dataStoreIdentifier)
+        self.addedAt = try c.decode(Date.self, forKey: .addedAt)
+        self.claudeCodeLinked = try c.decodeIfPresent(Bool.self, forKey: .claudeCodeLinked) ?? false
     }
 }
 
@@ -385,6 +401,7 @@ enum AccountStore {
         "usageHistory.\(accountID.uuidString)"
     }
 }
+
 
 /// A newer version discovered via the GitHub Releases API.
 struct UpdateInfo {

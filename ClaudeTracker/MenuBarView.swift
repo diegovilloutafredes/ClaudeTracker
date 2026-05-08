@@ -105,7 +105,7 @@ struct MenuBarView: View {
         }
     }
 
-    /// Multi-account chevron picker. Shown only when 2+ accounts exist; single-account users
+/// Multi-account chevron picker. Shown only when 2+ accounts exist; single-account users
     /// see the original subscription badge instead so the UI is unchanged for them.
     private var accountPicker: some View {
         Menu {

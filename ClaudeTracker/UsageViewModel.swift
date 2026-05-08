@@ -46,7 +46,7 @@ final class UsageViewModel {
     /// session into a per-identifier data store. The popover shows a loading state while true.
     var isMigrating: Bool = false
 
-    /// Active account's last fetched usage response. Read-only — fetch path writes to the
+/// Active account's last fetched usage response. Read-only — fetch path writes to the
     /// per-account bucket directly so a mid-fetch account switch can't cross-contaminate state.
     var usage: UsageResponse? { activeState?.usage }
     /// Active account's last error message.
@@ -336,9 +336,35 @@ final class UsageViewModel {
 
     /// Switches the active account: cancels in-flight work, dismisses any toasts that
     /// belonged to the outgoing account, persists the new selection, and starts polling
-    /// against the new account's data store.
+    /// against the new account's data store. `isManual: true` (the default) timestamps
     func switchAccount(to id: UUID) {
         guard id != activeAccountID, let acct = accounts.first(where: { $0.id == id }) else { return }
+
+        // If this account has a saved CLI token, swap the Keychain entry.
+        // On failure, show a toast and still proceed — the user explicitly chose.
+        let fromLabel = accounts.first(where: { $0.id == activeAccountID })?.label
+        let outgoingLinkedID: UUID? = activeAccountID.flatMap { oid in
+            accounts.first(where: { $0.id == oid && $0.claudeCodeLinked }) != nil ? oid : nil
+        }
+        var cliSwitchSucceeded = false
+        if acct.claudeCodeLinked {
+            do {
+                try ClaudeCodeKeychain.switchTo(incoming: acct.id, savingCurrentAs: outgoingLinkedID)
+                cliSwitchSucceeded = true
+                AppLogger.shared.info("Claude Code CLI switched to \(acct.label)")
+            } catch {
+                AppLogger.shared.error("Claude Code CLI switch failed for \(acct.label): \(error)")
+                ToastWindowController.shared.show(
+                    title: String(localized: "Claude Code switch failed"),
+                    message: String(localized: "Could not update CLI credentials for \(acct.label)"),
+                    icon: "exclamationmark.triangle",
+                    iconColor: .orange,
+                    duration: toastDuration,
+                    permanent: false
+                )
+            }
+        }
+
         fetchTask?.cancel(); fetchTask = nil
         timer?.cancel(); timer = nil
         isLoading = false
@@ -354,6 +380,19 @@ final class UsageViewModel {
         AccountStore.saveActiveID(id)
         buildActiveService(for: acct)
         AppLogger.shared.info("switched active account to \(acct.label) (\(id.uuidString.prefix(8)))")
+
+        if cliSwitchSucceeded {
+            let message = fromLabel.map { String(format: String(localized: "From %@"), $0) }
+                ?? String(localized: "CLI account updated")
+            ToastWindowController.shared.show(
+                title: String(localized: "Claude Code → \(acct.label)"),
+                message: message,
+                icon: "terminal",
+                iconColor: .green,
+                duration: toastDuration,
+                permanent: false
+            )
+        }
         startSession()
     }
 
@@ -408,6 +447,7 @@ final class UsageViewModel {
         accounts.removeAll { $0.id == id }
         statesByAccount.removeValue(forKey: id)
         UserDefaults.standard.removeObject(forKey: AccountStore.usageHistoryKey(for: id))
+        ClaudeCodeKeychain.remove(id: id)
         AccountStore.saveAccounts(accounts)
         if let dataStoreID {
             WKWebsiteDataStore.remove(forIdentifier: dataStoreID) { err in
@@ -445,6 +485,42 @@ final class UsageViewModel {
     /// currently active account.
     func signOut() {
         if let id = activeAccountID { removeAccount(id) }
+    }
+
+    // MARK: - Claude Code CLI integration
+
+    /// Captures the currently-active Claude Code CLI OAuth token (whatever the user just
+    /// `/login`'d as) and saves a per-account copy so this ClaudeTracker account can later
+    /// activate it via `switchAccount`. The user is expected to have just signed into the
+    /// matching Claude account in the CLI before tapping Link.
+    /// Returns nil on success, or a human-readable error message on failure.
+    @discardableResult
+    func linkClaudeCode(_ id: UUID) -> String? {
+        guard let idx = accounts.firstIndex(where: { $0.id == id }) else { return "Account not found." }
+        do {
+            try ClaudeCodeKeychain.saveActiveTokenAs(id: id)
+            var copy = accounts
+            copy[idx].claudeCodeLinked = true
+            accounts = copy
+            AccountStore.saveAccounts(accounts)
+            AppLogger.shared.info("Claude Code linked: \(accounts[idx].label) (\(id.uuidString.prefix(8)))")
+            return nil
+        } catch {
+            AppLogger.shared.error("Claude Code link failed: \(error)")
+            return String(describing: error)
+        }
+    }
+
+/// Forgets the saved per-account CLI token. The active CLI slot is untouched —
+    /// whoever the CLI is currently logged in as remains active.
+    func unlinkClaudeCode(_ id: UUID) {
+        guard let idx = accounts.firstIndex(where: { $0.id == id }) else { return }
+        ClaudeCodeKeychain.remove(id: id)
+        var copy = accounts
+        copy[idx].claudeCodeLinked = false
+        accounts = copy
+        AccountStore.saveAccounts(accounts)
+        AppLogger.shared.info("Claude Code unlinked: \(accounts[idx].label)")
     }
 
     // MARK: - Migration
@@ -601,7 +677,7 @@ final class UsageViewModel {
         }
     }
 
-    /// Schedules the next poll after an adaptive delay derived from current utilization and pace.
+/// Schedules the next poll after an adaptive delay derived from current utilization and pace.
     ///
     /// Interval logic (per window, takes the minimum across both windows):
     ///   - Window stale (reset passed while app was idle): 2 s — catch the new window fast
