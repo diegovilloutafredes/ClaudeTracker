@@ -46,15 +46,7 @@ final class UsageViewModel {
     /// session into a per-identifier data store. The popover shows a loading state while true.
     var isMigrating: Bool = false
 
-    /// Auto-balance settings (strategy + shell-hook trigger flag + last manual switch
-    /// timestamp). Loaded from UserDefaults via `BalanceSettingsStore.load()` after init
-    /// so we don't read defaults before the legacy-account migration completes.
-    /// Default value (Manual / hook off / no manual switch) preserves opt-in semantics.
-    var balanceSettings: BalanceSettings = BalanceSettings(
-        strategy: .manual, triggerOnClaude: false, lastManualSwitch: nil
-    )
-
-    /// Active account's last fetched usage response. Read-only — fetch path writes to the
+/// Active account's last fetched usage response. Read-only — fetch path writes to the
     /// per-account bucket directly so a mid-fetch account switch can't cross-contaminate state.
     var usage: UsageResponse? { activeState?.usage }
     /// Active account's last error message.
@@ -273,9 +265,6 @@ final class UsageViewModel {
                     guard let self else { return }
                     self.cachedMenuBarKey = ""
                 }
-            // Auto-balance settings come from UserDefaults; load after the legacy
-            // migration runs so we never read an empty store.
-            self.balanceSettings = BalanceSettingsStore.load()
         }
     }
 
@@ -348,18 +337,11 @@ final class UsageViewModel {
     /// Switches the active account: cancels in-flight work, dismisses any toasts that
     /// belonged to the outgoing account, persists the new selection, and starts polling
     /// against the new account's data store. `isManual: true` (the default) timestamps
-    /// the switch in `balanceSettings.lastManualSwitch`, which freezes auto-balance for
-    /// 5 min so the human's choice isn't immediately overridden. Auto-balance call sites
-    /// pass `isManual: false` so they don't extend their own override window.
-    @discardableResult
-    func switchAccount(to id: UUID, isManual: Bool = true) -> Bool {
-        guard id != activeAccountID, let acct = accounts.first(where: { $0.id == id }) else { return false }
+    func switchAccount(to id: UUID) {
+        guard id != activeAccountID, let acct = accounts.first(where: { $0.id == id }) else { return }
 
-        // If this account has a saved CLI token, attempt the Keychain swap before
-        // committing to the app-level switch. For auto-balance we abort on failure
-        // so we never show "active account" in the app differing from what the CLI
-        // is actually using. For manual switches the user chose explicitly, so we
-        // proceed and surface the failure via toast instead of blocking them.
+        // If this account has a saved CLI token, swap the Keychain entry.
+        // On failure, show a toast and still proceed — the user explicitly chose.
         let fromLabel = accounts.first(where: { $0.id == activeAccountID })?.label
         var cliSwitchSucceeded = false
         if acct.claudeCodeLinked {
@@ -369,11 +351,6 @@ final class UsageViewModel {
                 AppLogger.shared.info("Claude Code CLI switched to \(acct.label)")
             } catch {
                 AppLogger.shared.error("Claude Code CLI switch failed for \(acct.label): \(error)")
-                if !isManual {
-                    // Auto-balance: don't switch the app account if the CLI swap failed.
-                    return false
-                }
-                // Manual: proceed, but toast the failure so the user knows.
                 ToastWindowController.shared.show(
                     title: String(localized: "Claude Code switch failed"),
                     message: String(localized: "Could not update CLI credentials for \(acct.label)"),
@@ -385,10 +362,6 @@ final class UsageViewModel {
             }
         }
 
-        if isManual {
-            balanceSettings.lastManualSwitch = Date()
-            BalanceSettingsStore.save(balanceSettings)
-        }
         fetchTask?.cancel(); fetchTask = nil
         timer?.cancel(); timer = nil
         isLoading = false
@@ -405,7 +378,6 @@ final class UsageViewModel {
         buildActiveService(for: acct)
         AppLogger.shared.info("switched active account to \(acct.label) (\(id.uuidString.prefix(8)))")
 
-        // Toast every successful CLI swap regardless of what triggered the switch.
         if cliSwitchSucceeded {
             let message = fromLabel.map { String(format: String(localized: "From %@"), $0) }
                 ?? String(localized: "CLI account updated")
@@ -419,7 +391,6 @@ final class UsageViewModel {
             )
         }
         startSession()
-        return true
     }
 
     /// Adds a new account record (with a placeholder label until `/api/account` resolves),
@@ -537,29 +508,7 @@ final class UsageViewModel {
         }
     }
 
-    /// Runs the current auto-balance strategy and applies the decision.
-    /// Idempotent: a no-switch decision (or one for the already-active account)
-    /// is a logged no-op. `trigger` distinguishes who invoked us so logs and
-    /// the override-window logic can attribute decisions correctly. Any CLI swap
-    /// and its toast are handled inside `switchAccount(to:isManual:false)`.
-    @discardableResult
-    func applyBalanceDecisionIfNeeded(trigger: BalanceTrigger) -> BalanceDecision {
-        let decision = AccountBalancer.decide(
-            strategy: balanceSettings.strategy,
-            accounts: accounts,
-            states: statesByAccount,
-            currentlyActive: activeAccountID,
-            lastManualSwitch: balanceSettings.lastManualSwitch,
-            trigger: trigger
-        )
-        AppLogger.shared.info("balance [\(trigger.rawValue)]: \(decision.reason)")
-        if decision.shouldSwitch, let to = decision.recommendedAccountID {
-            switchAccount(to: to, isManual: false)
-        }
-        return decision
-    }
-
-    /// Forgets the saved per-account CLI token. The active CLI slot is untouched —
+/// Forgets the saved per-account CLI token. The active CLI slot is untouched —
     /// whoever the CLI is currently logged in as remains active.
     func unlinkClaudeCode(_ id: UUID) {
         guard let idx = accounts.firstIndex(where: { $0.id == id }) else { return }
@@ -719,43 +668,13 @@ final class UsageViewModel {
                 statesByAccount[id, default: .init()].error = error.localizedDescription
                 shouldSchedule = true
             }
-            // Refresh the auto-balance state file after each poll. Best-effort:
-            // failures are logged and don't affect polling. The shell hook
-            // tolerates a missing or stale file.
-            exportBalanceState()
             // Only flip the spinner off if this fetch was for the still-active account.
             if id == activeAccountID { isLoading = false }
             if shouldSchedule, id == activeAccountID { scheduleNextPoll() }
         }
     }
 
-    /// Writes `~/Library/Application Support/ClaudeTracker/balance.json` with
-    /// per-account scores + current settings, so the `claude-balance` shell
-    /// hook can decide which account to use without IPC. Atomic write =
-    /// readers always see a complete file or the previous version.
-    func exportBalanceState() {
-        let data = AccountBalancer.exportState(
-            settings: balanceSettings,
-            accounts: accounts,
-            states: statesByAccount,
-            currentlyActive: activeAccountID
-        )
-        guard !data.isEmpty else { return }
-        let fm = FileManager.default
-        guard let support = try? fm.url(for: .applicationSupportDirectory,
-                                        in: .userDomainMask, appropriateFor: nil, create: true)
-        else { return }
-        let dir = support.appendingPathComponent("ClaudeTracker", isDirectory: true)
-        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent("balance.json")
-        do {
-            try data.write(to: url, options: .atomic)
-        } catch {
-            AppLogger.shared.error("balance.json write failed: \(error.localizedDescription)")
-        }
-    }
-
-    /// Schedules the next poll after an adaptive delay derived from current utilization and pace.
+/// Schedules the next poll after an adaptive delay derived from current utilization and pace.
     ///
     /// Interval logic (per window, takes the minimum across both windows):
     ///   - Window stale (reset passed while app was idle): 2 s — catch the new window fast

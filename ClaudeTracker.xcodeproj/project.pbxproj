@@ -20,7 +20,6 @@
 		AA0000000000000000000013 /* UsageViewModelMenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000017 /* UsageViewModelMenuBar.swift */; };
 		AA0000000000000000000020 /* ClaudeCodeKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000020 /* ClaudeCodeKeychain.swift */; };
 		AA0000000000000000000021 /* SandboxMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000021 /* SandboxMigration.swift */; };
-		AA0000000000000000000022 /* AccountBalancer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000022 /* AccountBalancer.swift */; };
 		AA0000000000000000000010 /* ClaudeTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000014 /* ClaudeTrackerTests.swift */; };
 		AA0000000000000000000011 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000015 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -52,7 +51,6 @@
 		BB0000000000000000000017 /* UsageViewModelMenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageViewModelMenuBar.swift; sourceTree = "<group>"; };
 		BB0000000000000000000020 /* ClaudeCodeKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeKeychain.swift; sourceTree = "<group>"; };
 		BB0000000000000000000021 /* SandboxMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SandboxMigration.swift; sourceTree = "<group>"; };
-		BB0000000000000000000022 /* AccountBalancer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountBalancer.swift; sourceTree = "<group>"; };
 		BB0000000000000000000013 /* ClaudeTrackerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeTrackerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB0000000000000000000014 /* ClaudeTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeTrackerTests.swift; sourceTree = "<group>"; };
 		BB0000000000000000000015 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -112,7 +110,6 @@
 				BB0000000000000000000016 /* AppLogger.swift */,
 				BB0000000000000000000020 /* ClaudeCodeKeychain.swift */,
 				BB0000000000000000000021 /* SandboxMigration.swift */,
-				BB0000000000000000000022 /* AccountBalancer.swift */,
 				BB0000000000000000000012 /* Localizable.xcstrings */,
 				BB0000000000000000000015 /* Assets.xcassets */,
 				BB0000000000000000000007 /* Info.plist */,
@@ -222,7 +219,6 @@
 				AA0000000000000000000012 /* AppLogger.swift in Sources */,
 				AA0000000000000000000020 /* ClaudeCodeKeychain.swift in Sources */,
 				AA0000000000000000000021 /* SandboxMigration.swift in Sources */,
-				AA0000000000000000000022 /* AccountBalancer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

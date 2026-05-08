@@ -97,7 +97,6 @@ struct MenuBarView: View {
             Text("Claude Tracker")
                 .font(sf(14, .semibold))
             Spacer()
-            balanceButton
             if viewModel.accounts.count >= 2 {
                 accountPicker
             } else if let sub = viewModel.accountInfo?.subscriptionLabel {
@@ -106,31 +105,7 @@ struct MenuBarView: View {
         }
     }
 
-    /// Auto-balance trigger button. Visible only when ≥2 accounts are linked
-    /// to Claude Code and the strategy isn't Manual (Manual would always
-    /// no-op, hiding the button avoids the dead-click). Disabled-with-tooltip
-    /// during the 5-min override window after a manual switch.
-    @ViewBuilder
-    private var balanceButton: some View {
-        let linkedCount = viewModel.accounts.filter { $0.claudeCodeLinked }.count
-        let isManualStrategy: Bool = {
-            if case .manual = viewModel.balanceSettings.strategy { return true }
-            return false
-        }()
-        if linkedCount >= 2 && !isManualStrategy {
-            Button {
-                viewModel.applyBalanceDecisionIfNeeded(trigger: .manualButton)
-            } label: {
-                Image(systemName: "scale.3d")
-                    .font(sf(11, .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.borderless)
-            .help(Text("Switch to best account based on current strategy"))
-        }
-    }
-
-    /// Multi-account chevron picker. Shown only when 2+ accounts exist; single-account users
+/// Multi-account chevron picker. Shown only when 2+ accounts exist; single-account users
     /// see the original subscription badge instead so the UI is unchanged for them.
     private var accountPicker: some View {
         Menu {
