@@ -98,28 +98,39 @@ enum ClaudeCodeKeychain {
     }
 
     private static func writeToken(service: String, data: Data) throws {
-        // Try update first — preserves the original ACL on the active entry,
-        // so Claude Code CLI keeps reading it without re-prompting the user.
+        // Build an open ACL (nil trusted-apps list = any application may read
+        // without a password prompt). This is the same policy that
+        // `security add-generic-password -T ""` applies from the shell, and it
+        // prevents macOS from re-prompting on every new build of ClaudeTracker.
+        // SecAccessCreate is deprecated but is the only API that creates an
+        // open-ACL entry (nil trusted apps = any process reads without a
+        // password prompt). kSecAttrAccessible controls unlock-state policy,
+        // not which processes are trusted — no non-deprecated equivalent exists.
+        var access: SecAccess?
+        SecAccessCreate("Claude Code account" as CFString, nil, &access)
+
+        // Try update first — overwrite data AND replace the ACL so that an
+        // item originally created by the Claude Code CLI (which restricts reads
+        // to the claude binary) becomes readable by any app going forward.
         let updateQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service
         ]
-        let updateAttrs: [String: Any] = [
-            kSecValueData as String: data
-        ]
+        var updateAttrs: [String: Any] = [kSecValueData as String: data]
+        if let access { updateAttrs[kSecAttrAccess as String] = access }
         let updateStatus = SecItemUpdate(updateQuery as CFDictionary, updateAttrs as CFDictionary)
         if updateStatus == errSecSuccess { return }
         if updateStatus != errSecItemNotFound { throw Failure.osStatus(updateStatus) }
 
-        // No existing entry — create one. This path runs the first time we
-        // save a per-account copy under a new UUID.
-        let addQuery: [String: Any] = [
+        // No existing entry — create one with an open ACL from the start.
+        var addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: NSUserName(),
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
+        if let access { addQuery[kSecAttrAccess as String] = access }
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         if addStatus != errSecSuccess { throw Failure.osStatus(addStatus) }
     }
