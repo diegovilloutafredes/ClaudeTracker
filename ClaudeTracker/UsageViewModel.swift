@@ -351,8 +351,40 @@ final class UsageViewModel {
     /// the switch in `balanceSettings.lastManualSwitch`, which freezes auto-balance for
     /// 5 min so the human's choice isn't immediately overridden. Auto-balance call sites
     /// pass `isManual: false` so they don't extend their own override window.
-    func switchAccount(to id: UUID, isManual: Bool = true) {
-        guard id != activeAccountID, let acct = accounts.first(where: { $0.id == id }) else { return }
+    @discardableResult
+    func switchAccount(to id: UUID, isManual: Bool = true) -> Bool {
+        guard id != activeAccountID, let acct = accounts.first(where: { $0.id == id }) else { return false }
+
+        // If this account has a saved CLI token, attempt the Keychain swap before
+        // committing to the app-level switch. For auto-balance we abort on failure
+        // so we never show "active account" in the app differing from what the CLI
+        // is actually using. For manual switches the user chose explicitly, so we
+        // proceed and surface the failure via toast instead of blocking them.
+        let fromLabel = accounts.first(where: { $0.id == activeAccountID })?.label
+        var cliSwitchSucceeded = false
+        if acct.claudeCodeLinked {
+            do {
+                try ClaudeCodeKeychain.switchTo(id: acct.id)
+                cliSwitchSucceeded = true
+                AppLogger.shared.info("Claude Code CLI switched to \(acct.label)")
+            } catch {
+                AppLogger.shared.error("Claude Code CLI switch failed for \(acct.label): \(error)")
+                if !isManual {
+                    // Auto-balance: don't switch the app account if the CLI swap failed.
+                    return false
+                }
+                // Manual: proceed, but toast the failure so the user knows.
+                ToastWindowController.shared.show(
+                    title: String(localized: "Claude Code switch failed"),
+                    message: String(localized: "Could not update CLI credentials for \(acct.label)"),
+                    icon: "exclamationmark.triangle",
+                    iconColor: .orange,
+                    duration: toastDuration,
+                    permanent: false
+                )
+            }
+        }
+
         if isManual {
             balanceSettings.lastManualSwitch = Date()
             BalanceSettingsStore.save(balanceSettings)
@@ -372,17 +404,22 @@ final class UsageViewModel {
         AccountStore.saveActiveID(id)
         buildActiveService(for: acct)
         AppLogger.shared.info("switched active account to \(acct.label) (\(id.uuidString.prefix(8)))")
-        // If the new account has a Claude Code CLI token saved, also flip the
-        // CLI's active credential slot so subsequent `claude` invocations use it.
-        if acct.claudeCodeLinked {
-            do {
-                try ClaudeCodeKeychain.switchTo(id: acct.id)
-                AppLogger.shared.info("Claude Code CLI switched to \(acct.label)")
-            } catch {
-                AppLogger.shared.error("Claude Code CLI switch failed: \(error)")
-            }
+
+        // Toast every successful CLI swap regardless of what triggered the switch.
+        if cliSwitchSucceeded {
+            let message = fromLabel.map { String(format: String(localized: "From %@"), $0) }
+                ?? String(localized: "CLI account updated")
+            ToastWindowController.shared.show(
+                title: String(localized: "Claude Code → \(acct.label)"),
+                message: message,
+                icon: "terminal",
+                iconColor: .green,
+                duration: toastDuration,
+                permanent: false
+            )
         }
         startSession()
+        return true
     }
 
     /// Adds a new account record (with a placeholder label until `/api/account` resolves),
@@ -503,10 +540,8 @@ final class UsageViewModel {
     /// Runs the current auto-balance strategy and applies the decision.
     /// Idempotent: a no-switch decision (or one for the already-active account)
     /// is a logged no-op. `trigger` distinguishes who invoked us so logs and
-    /// the override-window logic can attribute decisions correctly. When a
-    /// switch is applied, a toast surfaces the change so the user notices —
-    /// auto-balance is otherwise silent and could change their active account
-    /// without their realizing.
+    /// the override-window logic can attribute decisions correctly. Any CLI swap
+    /// and its toast are handled inside `switchAccount(to:isManual:false)`.
     @discardableResult
     func applyBalanceDecisionIfNeeded(trigger: BalanceTrigger) -> BalanceDecision {
         let decision = AccountBalancer.decide(
@@ -519,25 +554,7 @@ final class UsageViewModel {
         )
         AppLogger.shared.info("balance [\(trigger.rawValue)]: \(decision.reason)")
         if decision.shouldSwitch, let to = decision.recommendedAccountID {
-            // Snapshot labels BEFORE the switch so the toast can show "A → B".
-            let fromLabel = accounts.first(where: { $0.id == decision.currentAccountID })?.label
-            let toLabel = accounts.first(where: { $0.id == to })?.label ?? String(localized: "another account")
             switchAccount(to: to, isManual: false)
-            let title = String(localized: "Auto-balanced to \(toLabel)")
-            let message: String = {
-                if let from = fromLabel {
-                    return String(format: String(localized: "Switched from %@ — %@"), from, decision.reason)
-                }
-                return decision.reason
-            }()
-            ToastWindowController.shared.show(
-                title: title,
-                message: message,
-                icon: "scale.3d",
-                iconColor: .blue,
-                duration: toastDuration,
-                permanent: false
-            )
         }
         return decision
     }
