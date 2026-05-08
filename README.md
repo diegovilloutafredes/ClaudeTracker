@@ -6,6 +6,18 @@ A macOS menu bar app that shows your [Claude AI](https://claude.ai) usage limits
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/popover-usage.png" width="280" alt="Usage popover showing 5-Hour, 7-Day, and Sonnet windows with pace indicators">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/popover-charts.png" width="280" alt="Charts tab with historical utilization, pace, and forecast charts">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/settings.png" width="500" alt="Settings window with accounts, display options, and notification controls">
+</p>
+
 ## Features
 
 - Live 5-Hour and 7-Day utilization bars with color-coded thresholds (green / orange / red)
