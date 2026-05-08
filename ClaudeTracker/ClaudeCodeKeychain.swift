@@ -38,16 +38,6 @@ enum ClaudeCodeKeychain {
         }
     }
 
-    /// True iff a Claude Code CLI token currently exists in the Keychain.
-    static func isClaudeCodeInstalled() -> Bool {
-        return readToken(service: activeService) != nil
-    }
-
-    /// True iff a saved per-account token exists for this id.
-    static func isLinked(id: UUID) -> Bool {
-        return readToken(service: savedPrefix + id.uuidString) != nil
-    }
-
     /// Saves a copy of the currently-active CLI token under this account UUID.
     /// Throws `.noActiveToken` if the user hasn't `/login`'d yet.
     static func saveActiveTokenAs(id: UUID) throws {
@@ -81,15 +71,6 @@ enum ClaudeCodeKeychain {
             kSecAttrService as String: savedPrefix + id.uuidString
         ]
         _ = SecItemDelete(q as CFDictionary)
-    }
-
-    /// Returns true if the active CLI token equals this account's saved copy
-    /// (i.e. the CLI is currently using this account). False if not linked,
-    /// not active, or no active token at all.
-    static func isCurrentlyActive(id: UUID) -> Bool {
-        guard let active = readToken(service: activeService),
-              let saved = readToken(service: savedPrefix + id.uuidString) else { return false }
-        return active == saved
     }
 
     // MARK: - Internals
