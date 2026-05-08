@@ -55,11 +55,21 @@ enum ClaudeCodeKeychain {
         try writeToken(service: savedPrefix + id.uuidString, data: token)
     }
 
-    /// Copies this account's saved token onto the active slot, so the next
-    /// Claude Code CLI invocation uses it. Throws `.notLinked` if the
-    /// account hasn't been linked yet.
-    static func switchTo(id: UUID) throws {
-        guard let token = readToken(service: savedPrefix + id.uuidString) else { throw Failure.notLinked }
+    /// Snapshots the current active token back into `outgoingID`'s saved slot,
+    /// then copies `incomingID`'s saved token onto the active slot.
+    ///
+    /// The snapshot step is critical: Claude Code refreshes its OAuth token
+    /// in-place inside `Claude Code-credentials` during normal operation. Without
+    /// snapshotting, switching away and back discards those refreshes and leaves
+    /// the returning account with a stale token (lost session). Silent no-op if
+    /// no active token exists (nothing to snapshot).
+    static func switchTo(incoming: UUID, savingCurrentAs outgoing: UUID?) throws {
+        // 1. Save whatever is currently in the active slot back to the outgoing account.
+        if let outgoing, let current = readToken(service: activeService) {
+            try? writeToken(service: savedPrefix + outgoing.uuidString, data: current)
+        }
+        // 2. Activate the incoming account's saved token.
+        guard let token = readToken(service: savedPrefix + incoming.uuidString) else { throw Failure.notLinked }
         try writeToken(service: activeService, data: token)
     }
 

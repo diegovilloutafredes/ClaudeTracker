@@ -343,10 +343,13 @@ final class UsageViewModel {
         // If this account has a saved CLI token, swap the Keychain entry.
         // On failure, show a toast and still proceed — the user explicitly chose.
         let fromLabel = accounts.first(where: { $0.id == activeAccountID })?.label
+        let outgoingLinkedID: UUID? = activeAccountID.flatMap { oid in
+            accounts.first(where: { $0.id == oid && $0.claudeCodeLinked }) != nil ? oid : nil
+        }
         var cliSwitchSucceeded = false
         if acct.claudeCodeLinked {
             do {
-                try ClaudeCodeKeychain.switchTo(id: acct.id)
+                try ClaudeCodeKeychain.switchTo(incoming: acct.id, savingCurrentAs: outgoingLinkedID)
                 cliSwitchSucceeded = true
                 AppLogger.shared.info("Claude Code CLI switched to \(acct.label)")
             } catch {
