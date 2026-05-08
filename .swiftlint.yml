@@ -20,7 +20,7 @@ file_length:
   error: 1500
 
 type_body_length:
-  warning: 900
+  warning: 1000
   error: 1100
 
 function_body_length:

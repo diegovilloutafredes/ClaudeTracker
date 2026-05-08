@@ -402,7 +402,6 @@ enum AccountStore {
     }
 }
 
-
 /// A newer version discovered via the GitHub Releases API.
 struct UpdateInfo {
     let version: String
