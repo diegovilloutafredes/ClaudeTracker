@@ -129,14 +129,7 @@ struct SettingsView: View {
                 Spacer()
                 if !viewModel.accounts.isEmpty {
                     Button {
-                        let acct = viewModel.addAccount()
-                        if let svc = viewModel.apiService {
-                            LoginWindowController.shared.open(
-                                apiService: svc,
-                                onSessionFound: viewModel.handleSessionFound,
-                                onCancel: { viewModel.cancelPendingAdd(acct) }
-                            )
-                        }
+                        viewModel.openLoginForNewAccount()
                     } label: {
                         Label("Add account", systemImage: "plus.circle")
                             .labelStyle(.titleAndIcon)
@@ -155,14 +148,7 @@ struct SettingsView: View {
             Text("Not signed in").font(.subheadline)
             Spacer()
             Button("Sign in") {
-                let acct = viewModel.addAccount()
-                if let svc = viewModel.apiService {
-                    LoginWindowController.shared.open(
-                        apiService: svc,
-                        onSessionFound: viewModel.handleSessionFound,
-                        onCancel: { viewModel.cancelPendingAdd(acct) }
-                    )
-                }
+                viewModel.openLoginForNewAccount()
             }
             .buttonStyle(.borderedProminent)
         }

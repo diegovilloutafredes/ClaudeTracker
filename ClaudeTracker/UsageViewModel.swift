@@ -179,6 +179,42 @@ final class UsageViewModel {
     var cachedMenuBarImage = NSImage()
 
     init() {
+        loadPersistedPreferences()
+        isInitialized = true
+
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                AppLogger.shared.info("wake detected — scheduling usage fetch and update check")
+                try? await Task.sleep(for: .seconds(5))
+                self?.fetchUsage()
+                try? await Task.sleep(for: .seconds(25))
+                self?.checkForUpdates()
+            }
+        }
+
+        loadAccountsAndStartActive()
+        Task { try? await Task.sleep(for: .seconds(10)); checkForUpdates() }
+        schedulePeriodicUpdateCheck()
+
+        // `NSApp` is nil at this point on macOS 26 because `UsageViewModel` is allocated as a
+        // `@State` initializer inside `ClaudeTrackerApp.init`, before `NSApplication.shared`
+        // exists. Defer the appearance subscription onto the main queue so it lands after the
+        // app is up. (Implicit unwrap of `NSApp` here used to work on earlier macOS versions.)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.appearanceCancellable = NSApp.publisher(for: \.effectiveAppearance)
+                .dropFirst()
+                .receive(on: RunLoop.main)
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    self.cachedMenuBarKey = ""
+                }
+        }
+    }
+
+    private func loadPersistedPreferences() {
         if let savedWindow = UserDefaults.standard.string(forKey: "menuBarWindow"),
            let window = MenuBarWindow(rawValue: savedWindow) {
             menuBarWindow = window
@@ -187,7 +223,6 @@ final class UsageViewModel {
         // Version 2 migration: resets any earlier installation that may have had sound and banner
         // enabled by default to the current toast-only defaults.
         if UserDefaults.standard.integer(forKey: "notificationDefaultsVersion") < 2 {
-            UserDefaults.standard.set(false, forKey: "notifyOnReset")
             UserDefaults.standard.set(false, forKey: "notifySound")
             UserDefaults.standard.set(true,  forKey: "notifyToast")
             UserDefaults.standard.set(true,  forKey: "notify5Hour")
@@ -228,44 +263,11 @@ final class UsageViewModel {
         // Legacy `usageHistory` (single-account) is migrated into the per-account namespace
         // by `migrateLegacySessionIfPresent`; do not load it here.
 
-        autoUpdate = UserDefaults.standard.object(forKey: "autoUpdate") as? Bool ?? false
         lastNotifiedUpdateVersion = UserDefaults.standard.string(forKey: "lastNotifiedUpdateVersion") ?? ""
-
         let savedCheckInterval = UserDefaults.standard.double(forKey: "updateCheckInterval")
         if savedCheckInterval >= 4 * 3600 { nextCheckInterval = savedCheckInterval }
-
-        isInitialized = true
-
-        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                AppLogger.shared.info("wake detected — scheduling usage fetch and update check")
-                try? await Task.sleep(for: .seconds(5))
-                self?.fetchUsage()
-                try? await Task.sleep(for: .seconds(25))
-                self?.checkForUpdates()
-            }
-        }
-
-        loadAccountsAndStartActive()
-        Task { try? await Task.sleep(for: .seconds(10)); checkForUpdates() }
-        schedulePeriodicUpdateCheck()
-
-        // `NSApp` is nil at this point on macOS 26 because `UsageViewModel` is allocated as a
-        // `@State` initializer inside `ClaudeTrackerApp.init`, before `NSApplication.shared`
-        // exists. Defer the appearance subscription onto the main queue so it lands after the
-        // app is up. (Implicit unwrap of `NSApp` here used to work on earlier macOS versions.)
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.appearanceCancellable = NSApp.publisher(for: \.effectiveAppearance)
-                .dropFirst()
-                .receive(on: RunLoop.main)
-                .sink { [weak self] _ in
-                    guard let self else { return }
-                    self.cachedMenuBarKey = ""
-                }
-        }
+        // Load autoUpdate last so its didSet fires with nextCheckInterval already correct.
+        autoUpdate = UserDefaults.standard.object(forKey: "autoUpdate") as? Bool ?? false
     }
 
     // MARK: - Multi-Account Lifecycle
@@ -312,6 +314,12 @@ final class UsageViewModel {
         apiService?.tearDown()
         apiService = ClaudeAPIService(dataStoreIdentifier: account.dataStoreIdentifier)
         cachedMenuBarKey = ""
+    }
+
+    private func cancelInFlightWork() {
+        fetchTask?.cancel(); fetchTask = nil
+        timer?.cancel(); timer = nil
+        isLoading = false
     }
 
     /// Called by the login flow once a session cookie has been detected for the active account.
@@ -365,9 +373,7 @@ final class UsageViewModel {
             }
         }
 
-        fetchTask?.cancel(); fetchTask = nil
-        timer?.cancel(); timer = nil
-        isLoading = false
+        cancelInFlightWork()
         // Dismiss any active pace toasts owned by the outgoing account.
         if let outgoingID = activeAccountID,
            let outgoing = statesByAccount[outgoingID] {
@@ -409,9 +415,7 @@ final class UsageViewModel {
         AccountStore.saveAccounts(accounts)
         // Mark the new one active so the freshly built service is the live one.
         // Cancel any in-flight work tied to the previous account.
-        fetchTask?.cancel(); fetchTask = nil
-        timer?.cancel(); timer = nil
-        isLoading = false
+        cancelInFlightWork()
         activeAccountID = acct.id
         AccountStore.saveActiveID(acct.id)
         buildActiveService(for: acct)
@@ -427,15 +431,25 @@ final class UsageViewModel {
         removeAccount(acct.id)
     }
 
+    /// Creates a new account, makes it active, and opens the login window against its data store.
+    /// If the user closes the window without signing in, the placeholder account is rolled back.
+    func openLoginForNewAccount() {
+        let acct = addAccount()
+        guard let svc = apiService else { return }
+        LoginWindowController.shared.open(
+            apiService: svc,
+            onSessionFound: handleSessionFound,
+            onCancel: { [weak self] in self?.cancelPendingAdd(acct) }
+        )
+    }
+
     /// Removes an account: tears down its API service if active, deletes its persistent data
     /// store, removes its namespaced UserDefaults entries, and switches to the next account
     /// (or the empty state if none remains).
     func removeAccount(_ id: UUID) {
         let wasActive = (activeAccountID == id)
         if wasActive {
-            fetchTask?.cancel(); fetchTask = nil
-            timer?.cancel(); timer = nil
-            isLoading = false
+            cancelInFlightWork()
             apiService?.tearDown()
             apiService = nil
         }

@@ -122,14 +122,7 @@ struct MenuBarView: View {
             }
             Divider()
             Button("Add account") {
-                let acct = viewModel.addAccount()
-                if let svc = viewModel.apiService {
-                    LoginWindowController.shared.open(
-                        apiService: svc,
-                        onSessionFound: viewModel.handleSessionFound,
-                        onCancel: { viewModel.cancelPendingAdd(acct) }
-                    )
-                }
+                viewModel.openLoginForNewAccount()
             }
         } label: {
             HStack(spacing: 4 * s) {
@@ -219,14 +212,7 @@ struct MenuBarView: View {
                 .foregroundStyle(.secondary)
 
             Button {
-                let acct = viewModel.addAccount()
-                if let svc = viewModel.apiService {
-                    LoginWindowController.shared.open(
-                        apiService: svc,
-                        onSessionFound: viewModel.handleSessionFound,
-                        onCancel: { viewModel.cancelPendingAdd(acct) }
-                    )
-                }
+                viewModel.openLoginForNewAccount()
             } label: {
                 Label("Add a Claude account", systemImage: "globe")
             }
@@ -584,25 +570,7 @@ struct MenuBarView: View {
             }
         }
         .frame(height: 60 * s)
-        .chartOverlay { proxy in
-            GeometryReader { geo in
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let location):
-                            guard let plotFrame = proxy.plotFrame else { return }
-                            let frame = geo[plotFrame]
-                            let x = location.x - frame.origin.x
-                            if let date = proxy.value(atX: x, as: Date.self) {
-                                selectedTime.wrappedValue = date
-                            }
-                        case .ended:
-                            selectedTime.wrappedValue = nil
-                        }
-                    }
-            }
-        }
+        .chartHoverSelection(selectedTime)
     }
 
     @ViewBuilder
@@ -707,25 +675,7 @@ struct MenuBarView: View {
                     }
                 }
                 .frame(height: 60 * s)
-                .chartOverlay { proxy in
-                    GeometryReader { geo in
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onContinuousHover { phase in
-                                switch phase {
-                                case .active(let location):
-                                    guard let plotFrame = proxy.plotFrame else { return }
-                                    let frame = geo[plotFrame]
-                                    let x = location.x - frame.origin.x
-                                    if let date = proxy.value(atX: x, as: Date.self) {
-                                        selectedTime.wrappedValue = date
-                                    }
-                                case .ended:
-                                    selectedTime.wrappedValue = nil
-                                }
-                            }
-                    }
-                }
+                .chartHoverSelection(selectedTime)
             }
         }
     }
@@ -759,6 +709,40 @@ struct MenuBarView: View {
             .buttonStyle(.link)
             .font(sf(11))
         }
+    }
+}
+
+// MARK: - Chart Hover
+
+private struct ChartHoverModifier: ViewModifier {
+    let selectedTime: Binding<Date?>
+
+    func body(content: Content) -> some View {
+        content.chartOverlay { proxy in
+            GeometryReader { geo in
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let location):
+                            guard let plotFrame = proxy.plotFrame else { return }
+                            let frame = geo[plotFrame]
+                            let x = location.x - frame.origin.x
+                            if let date = proxy.value(atX: x, as: Date.self) {
+                                selectedTime.wrappedValue = date
+                            }
+                        case .ended:
+                            selectedTime.wrappedValue = nil
+                        }
+                    }
+            }
+        }
+    }
+}
+
+extension View {
+    fileprivate func chartHoverSelection(_ selectedTime: Binding<Date?>) -> some View {
+        modifier(ChartHoverModifier(selectedTime: selectedTime))
     }
 }
 
