@@ -966,8 +966,9 @@ final class UsageViewModel {
             statesByAccount[accountID] = s
         }
 
-        append(key: "five_hour", utilization: response.fiveHour?.utilization)
-        append(key: "seven_day", utilization: response.sevenDay?.utilization)
+        append(key: "five_hour",        utilization: response.fiveHour?.utilization)
+        append(key: "seven_day",         utilization: response.sevenDay?.utilization)
+        append(key: "seven_day_sonnet",  utilization: response.sevenDaySonnet?.utilization)
     }
 
     /// Fires a pace alert through all enabled channels when a watched window is on track to
@@ -983,8 +984,9 @@ final class UsageViewModel {
         }
 
         let candidates: [(key: String, name: String, watched: Bool)] = [
-            ("five_hour", String(localized: "5-Hour Window"), notify5Hour),
-            ("seven_day",  String(localized: "7-Day Window"),  notify7Day),
+            ("five_hour",        String(localized: "5-Hour Window"), notify5Hour),
+            ("seven_day",        String(localized: "7-Day Window"),  notify7Day),
+            ("seven_day_sonnet", String(localized: "7-Day Sonnet"),  notify7Day && showSonnetWindow),
         ]
 
         for (key, name, watched) in candidates {

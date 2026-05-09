@@ -246,14 +246,18 @@ struct MenuBarView: View {
                 windowRow(windowKey: windowKey, window: window)
             }
             if viewModel.showSonnetWindow, let sonnet = usage.sevenDaySonnet {
+                let sonnetIsStale = viewModel.isWindowStale(sonnet)
+                let suppressSonnetPace = sonnet.utilization >= 100 || sonnetIsStale
+                let sonnetPace = (viewModel.showPace && !suppressSonnetPace)
+                    ? viewModel.pace(for: "seven_day_sonnet") : nil
                 UsageWindowView(
                     title: String(localized: "7-Day Sonnet"),
                     window: sonnet,
-                    paceRate: nil,
-                    projectedHours: nil,
+                    paceRate: sonnetPace?.rate,
+                    projectedHours: sonnetPace?.projectedHours,
                     scale: s,
                     paceRateUnit: viewModel.paceRateUnit,
-                    isStale: viewModel.isWindowStale(sonnet)
+                    isStale: sonnetIsStale
                 )
             }
         }
