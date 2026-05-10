@@ -299,26 +299,24 @@ struct Account: Codable, Identifiable, Hashable {
     var label: String
     var email: String?
     var subscriptionLabel: String?
+    var orgName: String?
     let dataStoreIdentifier: UUID
     let addedAt: Date
-    /// True iff a Claude Code CLI OAuth token has been saved under this account.
-    /// Decoded with `decodeIfPresent` so existing pre-migration accounts default to false.
-    var claudeCodeLinked: Bool
 
     init(id: UUID = UUID(),
          label: String,
          email: String? = nil,
          subscriptionLabel: String? = nil,
+         orgName: String? = nil,
          dataStoreIdentifier: UUID = UUID(),
-         addedAt: Date = Date(),
-         claudeCodeLinked: Bool = false) {
+         addedAt: Date = Date()) {
         self.id = id
         self.label = label
         self.email = email
         self.subscriptionLabel = subscriptionLabel
+        self.orgName = orgName
         self.dataStoreIdentifier = dataStoreIdentifier
         self.addedAt = addedAt
-        self.claudeCodeLinked = claudeCodeLinked
     }
 
     init(from decoder: Decoder) throws {
@@ -327,9 +325,9 @@ struct Account: Codable, Identifiable, Hashable {
         self.label = try c.decode(String.self, forKey: .label)
         self.email = try c.decodeIfPresent(String.self, forKey: .email)
         self.subscriptionLabel = try c.decodeIfPresent(String.self, forKey: .subscriptionLabel)
+        self.orgName = try c.decodeIfPresent(String.self, forKey: .orgName)
         self.dataStoreIdentifier = try c.decode(UUID.self, forKey: .dataStoreIdentifier)
         self.addedAt = try c.decode(Date.self, forKey: .addedAt)
-        self.claudeCodeLinked = try c.decodeIfPresent(Bool.self, forKey: .claudeCodeLinked) ?? false
     }
 }
 

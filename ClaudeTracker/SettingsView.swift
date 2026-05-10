@@ -7,7 +7,6 @@ struct SettingsView: View {
     @State private var pendingRemoval: Account? = nil
     @State private var pendingRename: Account? = nil
     @State private var renameDraft: String = ""
-    @State private var linkErrorMessage: String? = nil
 
     var body: some View {
         let sf = NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
@@ -58,18 +57,6 @@ struct SettingsView: View {
                 pendingRename = nil
             }
             Button("Cancel", role: .cancel) { pendingRename = nil }
-        }
-        .alert(
-            Text("Couldn’t link Claude Code"),
-            isPresented: Binding(
-                get: { linkErrorMessage != nil },
-                set: { if !$0 { linkErrorMessage = nil } }
-            ),
-            presenting: linkErrorMessage
-        ) { _ in
-            Button("OK") { linkErrorMessage = nil }
-        } message: { msg in
-            Text(msg)
         }
     }
 
@@ -180,6 +167,12 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if let org = account.orgName,
+                   account.subscriptionLabel == "Team" || account.subscriptionLabel == "Enterprise" {
+                    Label(org, systemImage: "building.2")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Spacer()
@@ -189,7 +182,6 @@ struct SettingsView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
             }
-            claudeCodeLinkButton(account)
             Button {
                 renameDraft = account.label
                 pendingRename = account
@@ -207,34 +199,6 @@ struct SettingsView: View {
             }
             .buttonStyle(.borderless)
             .help(Text("Sign out & remove"))
-        }
-    }
-
-    /// Per-account button that captures the currently-active Claude Code CLI token
-    /// (when not linked) or forgets the saved copy (when already linked). Switching
-    /// accounts in this app then automatically flips the CLI's active credential.
-    @ViewBuilder
-    private func claudeCodeLinkButton(_ account: Account) -> some View {
-        if account.claudeCodeLinked {
-            Button {
-                viewModel.unlinkClaudeCode(account.id)
-            } label: {
-                Image(systemName: "terminal.fill")
-                    .foregroundStyle(.green)
-            }
-            .buttonStyle(.borderless)
-            .help(Text("Linked to Claude Code — click to unlink"))
-        } else {
-            Button {
-                if let err = viewModel.linkClaudeCode(account.id) {
-                    linkErrorMessage = err
-                }
-            } label: {
-                Image(systemName: "terminal")
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.borderless)
-            .help(Text("Link to Claude Code: run `claude` and `/login` with this account first, then click."))
         }
     }
 

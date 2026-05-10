@@ -18,6 +18,7 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     private var readyWaiters: [CheckedContinuation<Void, Error>] = []
     private var isLoadingPage = false
     private var cachedOrgId: String?
+    private(set) var cachedOrgName: String?
     private var cookieTimer: Timer?
     private var popupWebView: WKWebView?
     var onPopupRequested: ((WKWebView, WKWindowFeatures) -> Void)?
@@ -203,6 +204,7 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// Call this after sign-out or when a 401/403 response indicates the session is stale.
     func clearCache() {
         cachedOrgId = nil
+        cachedOrgName = nil
         isPageReady = false
     }
 
@@ -229,9 +231,10 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
             throw APIError.invalidResponse
         }
         let orgs = try JSONDecoder().decode([Organization].self, from: data)
-        guard let id = orgs.first?.uuid else { throw APIError.noOrganization }
-        cachedOrgId = id
-        return id
+        guard let org = orgs.first else { throw APIError.noOrganization }
+        cachedOrgId = org.uuid
+        cachedOrgName = org.name
+        return org.uuid
     }
 
     /// Translates JavaScript `Error` messages from `callAsyncJavaScript` into typed `APIError` values.
@@ -244,6 +247,7 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
         if msg.contains("HTTP_401") || msg.contains("HTTP_403") {
             isPageReady = false
             cachedOrgId = nil
+            cachedOrgName = nil
             return .unauthorized
         }
         if msg.contains("HTTP_429") { return .rateLimited }
