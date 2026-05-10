@@ -320,17 +320,21 @@ struct MenuBarView: View {
 
     @AppStorage("chartTimeRange") private var chartTimeRange: ChartTimeRange = .oneDay
     @State private var selectedTime: Date?
+    @State private var visibleHistory: [UsageDataPoint] = []
+    @State private var chartXDomain: ClosedRange<Date> = Date()...Date()
+
+    private func refreshVisibleHistory() {
+        let now = Date()
+        let cutoff = now.addingTimeInterval(-chartTimeRange.hours * 3600)
+        chartXDomain = cutoff...now
+        visibleHistory = viewModel.usageHistory.filter { $0.timestamp >= cutoff }
+    }
 
     @ViewBuilder
     private var chartsContent: some View {
-        let now = Date()
-        let cutoff = now.addingTimeInterval(-chartTimeRange.hours * 3600)
-        let xDomain = cutoff...now
-        let visible = viewModel.usageHistory.filter { $0.timestamp >= cutoff }
-
         VStack(alignment: .leading, spacing: 16 * s) {
             timeRangePicker
-            if visible.isEmpty {
+            if visibleHistory.isEmpty {
                 Text("No data for this period")
                     .font(sf(12))
                     .foregroundStyle(.secondary)
@@ -340,20 +344,22 @@ struct MenuBarView: View {
                 VStack(alignment: .leading, spacing: 22 * s) {
                     windowCharts(
                         title: "5-Hour", utilKeyPath: \.fiveHour, paceKeyPath: \.fiveHourPace,
-                        history: visible, xDomain: xDomain, selectedTime: $selectedTime,
+                        history: visibleHistory, xDomain: chartXDomain, selectedTime: $selectedTime,
                         window: viewModel.usage?.fiveHour, windowDuration: 5 * 3600,
                         currentPaceRate: viewModel.pace(for: "five_hour")?.rate
                     )
                     Divider()
                     windowCharts(
                         title: "7-Day", utilKeyPath: \.sevenDay, paceKeyPath: \.sevenDayPace,
-                        history: visible, xDomain: xDomain, selectedTime: $selectedTime,
+                        history: visibleHistory, xDomain: chartXDomain, selectedTime: $selectedTime,
                         window: viewModel.usage?.sevenDay, windowDuration: 7 * 24 * 3600,
                         currentPaceRate: viewModel.pace(for: "seven_day")?.rate
                     )
                 }
             }
         }
+        .onChange(of: chartTimeRange, initial: true) { refreshVisibleHistory() }
+        .onChange(of: viewModel.usageHistory.last?.timestamp) { refreshVisibleHistory() }
     }
 
     private var timeRangePicker: some View {
@@ -393,23 +399,25 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 14 * s) {
             Text(LocalizedStringKey(title))
                 .font(sf(11, .semibold))
-            miniChart(
+            MiniChartView(
                 label: "Utilization",
                 filtered: history,
                 keyPath: utilKeyPath,
                 domain: 0...100,
                 xDomain: xDomain,
                 selectedTime: selectedTime,
-                formatLabel: { "\(Int($0))%" }
+                paceRateUnit: nil,
+                scale: s
             )
-            miniChart(
+            MiniChartView(
                 label: "Pace",
                 filtered: history,
                 keyPath: paceKeyPath,
                 domain: nil,
                 xDomain: xDomain,
                 selectedTime: selectedTime,
-                formatLabel: { viewModel.paceRateUnit.format($0) }
+                paceRateUnit: viewModel.paceRateUnit,
+                scale: s
             )
             if let w = window {
                 projectionChart(
@@ -530,7 +538,7 @@ struct MenuBarView: View {
             LineMark(x: .value("Time", resetDate), y: .value("Usage", 100.0), series: .value("s", "expected"))
                 .foregroundStyle(Color.secondary.opacity(0.35))
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-            ForEach(Array(pairs.enumerated()), id: \.offset) { _, pair in
+            ForEach(pairs, id: \.0) { pair in
                 AreaMark(x: .value("Time", pair.0), y: .value("Usage", pair.1))
                     .foregroundStyle(Color.secondary.opacity(0.12))
                     .interpolationMethod(.monotone)
@@ -575,113 +583,6 @@ struct MenuBarView: View {
         }
         .frame(height: 60 * s)
         .chartHoverSelection(selectedTime)
-    }
-
-    @ViewBuilder
-    private func miniChart(
-        label: String,
-        filtered: [UsageDataPoint],
-        keyPath: KeyPath<UsageDataPoint, Double?>,
-        domain: ClosedRange<Double>?,
-        xDomain: ClosedRange<Date>,
-        selectedTime: Binding<Date?>,
-        formatLabel: @escaping (Double) -> String
-    ) -> some View {
-        let values: [Double] = filtered.compactMap { $0[keyPath: keyPath] }
-        let peak = values.max() ?? 0
-        let avg = values.isEmpty ? 0.0 : values.reduce(0, +) / Double(values.count)
-        let color: Color = urgencyColor(min((values.last ?? 0) / 100.0, 1.0))
-        let span = xDomain.upperBound.timeIntervalSince(xDomain.lowerBound)
-        let xFormat: Date.FormatStyle = span < 25 * 3600
-            ? .dateTime.hour().minute()
-            : .dateTime.month(.abbreviated).day()
-        let hovered: (Date, Double)? = {
-            guard let t = selectedTime.wrappedValue else { return nil }
-            let pairs = filtered.compactMap { dp -> (Date, Double)? in
-                guard let v = dp[keyPath: keyPath] else { return nil }
-                return (dp.timestamp, v)
-            }
-            return pairs.min(by: { abs($0.0.timeIntervalSince(t)) < abs($1.0.timeIntervalSince(t)) })
-        }()
-        let displayValue = hovered?.1 ?? (values.last ?? 0)
-        let nowLabel: String = {
-            if let (t, v) = hovered {
-                let timeStr = span < 25 * 3600
-                    ? t.formatted(.dateTime.hour().minute())
-                    : t.formatted(.dateTime.month(.abbreviated).day())
-                return "@ \(formatLabel(v))  \(timeStr)"
-            }
-            return "now \(formatLabel(displayValue))"
-        }()
-
-        VStack(alignment: .leading, spacing: 7 * s) {
-            HStack {
-                Text(LocalizedStringKey(label))
-                    .font(sf(10))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if !values.isEmpty {
-                    Text("\(nowLabel)  pk \(formatLabel(peak))  avg \(formatLabel(avg.rounded()))")
-                        .font(sf(9))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            if values.count < 2 {
-                Text("Collecting…")
-                    .font(sf(9))
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .frame(height: 50 * s)
-            } else {
-                Chart {
-                    ForEach(filtered) { dp in
-                        if let v = dp[keyPath: keyPath] {
-                            AreaMark(
-                                x: .value("Time", dp.timestamp),
-                                y: .value(label, v)
-                            )
-                            .foregroundStyle(color.opacity(0.15))
-                            .interpolationMethod(.monotone)
-                            LineMark(
-                                x: .value("Time", dp.timestamp),
-                                y: .value(label, v)
-                            )
-                            .foregroundStyle(color)
-                            .lineStyle(StrokeStyle(lineWidth: 1.5))
-                            .interpolationMethod(.monotone)
-                        }
-                    }
-                    if let t = selectedTime.wrappedValue, xDomain.contains(t) {
-                        RuleMark(x: .value("Selected", t))
-                            .foregroundStyle(Color.secondary.opacity(0.5))
-                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                    }
-                }
-                .chartYScale(domain: domain ?? (0...max(values.max().map { $0 * 1.2 } ?? 1, 1)))
-                .chartXScale(domain: xDomain)
-                .chartXAxis {
-                    AxisMarks(values: .automatic(desiredCount: 3)) { _ in
-                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                            .foregroundStyle(Color.secondary.opacity(0.2))
-                        AxisValueLabel(format: xFormat)
-                            .font(.system(size: 8 * s))
-                    }
-                }
-                .chartYAxis {
-                    AxisMarks(position: .trailing, values: .automatic(desiredCount: 2)) { value in
-                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                            .foregroundStyle(Color.secondary.opacity(0.25))
-                        AxisValueLabel {
-                            if let v = value.as(Double.self) {
-                                Text(formatLabel(v)).font(.system(size: 8 * s))
-                            }
-                        }
-                    }
-                }
-                .frame(height: 60 * s)
-                .chartHoverSelection(selectedTime)
-            }
-        }
     }
 
     // MARK: - Footer
@@ -747,6 +648,125 @@ private struct ChartHoverModifier: ViewModifier {
 extension View {
     fileprivate func chartHoverSelection(_ selectedTime: Binding<Date?>) -> some View {
         modifier(ChartHoverModifier(selectedTime: selectedTime))
+    }
+}
+
+// MARK: - Mini Chart View
+
+private struct MiniChartView: View {
+    let label: String
+    let filtered: [UsageDataPoint]
+    let keyPath: KeyPath<UsageDataPoint, Double?>
+    let domain: ClosedRange<Double>?
+    let xDomain: ClosedRange<Date>
+    @Binding var selectedTime: Date?
+    let paceRateUnit: PaceRateUnit?
+    let scale: CGFloat
+
+    private func sf(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size * scale, weight: weight)
+    }
+
+    private func format(_ value: Double) -> String {
+        paceRateUnit.map { $0.format(value) } ?? "\(Int(value))%"
+    }
+
+    var body: some View {
+        let values: [Double] = filtered.compactMap { $0[keyPath: keyPath] }
+        let peak = values.max() ?? 0
+        let avg = values.isEmpty ? 0.0 : values.reduce(0, +) / Double(values.count)
+        let color: Color = urgencyColor(min((values.last ?? 0) / 100.0, 1.0))
+        let span = xDomain.upperBound.timeIntervalSince(xDomain.lowerBound)
+        let xFormat: Date.FormatStyle = span < 25 * 3600
+            ? .dateTime.hour().minute()
+            : .dateTime.month(.abbreviated).day()
+        let hovered: (Date, Double)? = {
+            guard let t = selectedTime else { return nil }
+            let pairs = filtered.compactMap { dp -> (Date, Double)? in
+                guard let v = dp[keyPath: keyPath] else { return nil }
+                return (dp.timestamp, v)
+            }
+            return pairs.min(by: { abs($0.0.timeIntervalSince(t)) < abs($1.0.timeIntervalSince(t)) })
+        }()
+        let displayValue = hovered?.1 ?? (values.last ?? 0)
+        let nowLabel: String = {
+            if let (t, v) = hovered {
+                let timeStr = span < 25 * 3600
+                    ? t.formatted(.dateTime.hour().minute())
+                    : t.formatted(.dateTime.month(.abbreviated).day())
+                return "@ \(format(v))  \(timeStr)"
+            }
+            return "now \(format(displayValue))"
+        }()
+
+        VStack(alignment: .leading, spacing: 7 * scale) {
+            HStack {
+                Text(LocalizedStringKey(label))
+                    .font(sf(10))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if !values.isEmpty {
+                    Text("\(nowLabel)  pk \(format(peak))  avg \(format(avg.rounded()))")
+                        .font(sf(9))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if values.count < 2 {
+                Text("Collecting…")
+                    .font(sf(9))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(height: 50 * scale)
+            } else {
+                Chart {
+                    ForEach(filtered) { dp in
+                        if let v = dp[keyPath: keyPath] {
+                            AreaMark(
+                                x: .value("Time", dp.timestamp),
+                                y: .value(label, v)
+                            )
+                            .foregroundStyle(color.opacity(0.15))
+                            .interpolationMethod(.monotone)
+                            LineMark(
+                                x: .value("Time", dp.timestamp),
+                                y: .value(label, v)
+                            )
+                            .foregroundStyle(color)
+                            .lineStyle(StrokeStyle(lineWidth: 1.5))
+                            .interpolationMethod(.monotone)
+                        }
+                    }
+                    if let t = selectedTime, xDomain.contains(t) {
+                        RuleMark(x: .value("Selected", t))
+                            .foregroundStyle(Color.secondary.opacity(0.5))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    }
+                }
+                .chartYScale(domain: domain ?? (0...max(values.max().map { $0 * 1.2 } ?? 1, 1)))
+                .chartXScale(domain: xDomain)
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 3)) { _ in
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                            .foregroundStyle(Color.secondary.opacity(0.2))
+                        AxisValueLabel(format: xFormat)
+                            .font(.system(size: 8 * scale))
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(position: .trailing, values: .automatic(desiredCount: 2)) { value in
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                            .foregroundStyle(Color.secondary.opacity(0.25))
+                        AxisValueLabel {
+                            if let v = value.as(Double.self) {
+                                Text(format(v)).font(.system(size: 8 * scale))
+                            }
+                        }
+                    }
+                }
+                .frame(height: 60 * scale)
+                .chartHoverSelection($selectedTime)
+            }
+        }
     }
 }
 
