@@ -16,6 +16,13 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
 
+      # ClaudeTracker.xcodeproj is generated from project.yml (XcodeGen) and not committed.
+      - name: Install XcodeGen
+        run: brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+
+      - name: Generate Xcode project
+        run: make generate
+
       - name: Build
         run: |
           xcodebuild \
