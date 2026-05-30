@@ -21,7 +21,7 @@ APPLE_TEAM_ID  ?=
 # CI override: make build SIGNING_FLAGS="CODE_SIGNING_ALLOWED=NO"
 SIGNING_FLAGS ?= CODE_SIGN_IDENTITY="-"
 
-.PHONY: release build test lint run clean tag dmg zip sign notarize staple
+.PHONY: release build test lint run clean tag dmg zip sign notarize staple generate
 
 # ── Full release pipeline ─────────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ lint:
 
 # ── Test ─────────────────────────────────────────────────────────────────────
 
-test:
+test: generate
 	@echo "==> Running tests..."
 	xcodebuild test \
 	           -project $(PROJECT) \
@@ -51,9 +51,18 @@ test:
 	           SWIFT_STRICT_CONCURRENCY=minimal \
 	           $(SIGNING_FLAGS)
 
+# ── Generate Xcode project (XcodeGen) ─────────────────────────────────────────
+# project.yml is the source of truth; ClaudeTracker.xcodeproj is generated and
+# git-ignored. build/test depend on this so the project is always in sync.
+
+generate:
+	@command -v xcodegen >/dev/null 2>&1 || { echo "xcodegen not found — brew install xcodegen"; exit 1; }
+	@echo "==> Generating $(PROJECT) from project.yml..."
+	@xcodegen generate --quiet
+
 # ── Build ─────────────────────────────────────────────────────────────────────
 
-build:
+build: generate
 	@echo "==> Building..."
 	@pkill -9 -f "$(APP)" 2>/dev/null || true
 	@rm -rf ~/Library/Developer/Xcode/DerivedData/ClaudeTracker-*
@@ -144,8 +153,8 @@ run: build
 tag: lint
 	@if [ -z "$(VERSION)" ]; then echo "Usage: make tag VERSION=1.0.0"; exit 1; fi
 	@if [ -n "$$(git status --porcelain)" ]; then echo "Working directory is not clean — commit changes first"; exit 1; fi
-	@sed -i '' "s/MARKETING_VERSION = [^;]*/MARKETING_VERSION = $(VERSION)/g" $(PROJECT)/project.pbxproj
-	git add $(PROJECT)/project.pbxproj
+	@sed -i '' 's/MARKETING_VERSION: .*/MARKETING_VERSION: "$(VERSION)"/' project.yml
+	git add project.yml
 	git commit -m "Bump version to $(VERSION)"
 	git tag -a "v$(VERSION)" -m "v$(VERSION)"
 	git push origin main

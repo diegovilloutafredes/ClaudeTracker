@@ -20,18 +20,19 @@ Other Makefile targets:
 |---|---|
 | `make run` | Clean + build + install into `/Applications/` + launch |
 | `make build` | Clean + build Release into `release/build/` |
+| `make generate` | Generate `ClaudeTracker.xcodeproj` from `project.yml` (XcodeGen); `build`/`test`/`run` run this first |
 | `make zip` | Package `release/dist/` → `release/ClaudeTracker.zip` (with `install.command`) |
 | `make dmg` | Create `release/ClaudeTracker.dmg` with Applications symlink via `hdiutil` |
 | `make sign` | Codesign with `--options runtime`; silently skips if `SIGN_IDENTITY` not set |
 | `make notarize` | Submit to Apple notarization; silently skips if `APPLE_ID` not set |
 | `make staple` | Staple the notarization ticket; silently skips if `APPLE_ID` not set |
 | `make release` | Full pipeline: build → sign → notarize → staple → dmg → zip |
-| `make tag VERSION=x.y.z` | Bump `MARKETING_VERSION`, commit, tag, push — triggers CI release |
+| `make tag VERSION=x.y.z` | Bump `MARKETING_VERSION` in `project.yml`, commit, tag, push — triggers CI release |
 | `make clean` | Remove all build artifacts |
 
 Never `cp -R` over an existing `/Applications/ClaudeTracker.app` — Launch Services caches the old binary. Always delete first, then copy. `make run` and `install.command` both do this automatically.
 
-Requires macOS 14+ (Sonoma) and Xcode 15+. No external dependencies.
+Requires macOS 14+ (Sonoma), Xcode 15+, and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). The Xcode project is generated from `project.yml` and is **not** committed — `make generate` (run automatically by `build`/`test`/`run`) produces it. The app itself has no runtime dependencies.
 
 ## Releases
 
@@ -41,7 +42,7 @@ Cutting a release:
 make tag VERSION=1.2.0
 ```
 
-This requires a clean working directory. It bumps `MARKETING_VERSION` in `ClaudeTracker.xcodeproj/project.pbxproj`, commits the bump, creates an annotated git tag, and pushes both the commit and the tag. The GitHub Actions release workflow (`.github/workflows/release.yml`) triggers on the tag and publishes a GitHub Release with the zip attached.
+This requires a clean working directory. It bumps `MARKETING_VERSION` in `project.yml` (the XcodeGen source of truth — the `.xcodeproj` is generated and git-ignored), commits the bump, creates an annotated git tag, and pushes both the commit and the tag. The GitHub Actions release workflow (`.github/workflows/release.yml`) triggers on the tag and publishes a GitHub Release with the zip attached.
 
 The build uses `SIGNING_FLAGS="CODE_SIGNING_ALLOWED=NO"` and `SWIFT_STRICT_CONCURRENCY=minimal` on CI (both set in the Makefile). Do not remove `SWIFT_STRICT_CONCURRENCY=minimal` — Xcode 16 on `macos-15` treats some concurrency patterns as errors without it.
 
@@ -91,7 +92,7 @@ Do NOT attempt `HStack { Image; Text }`, `Label(text, systemImage:)`, `Text("\(I
 
 **Claude Code CLI integration:** ClaudeTracker's account picker also flips Claude Code's active OAuth credential. Per-account `Link` button in Settings (terminal SF Symbol, secondary tint when unlinked, green when linked) calls `linkClaudeCode(_ id:)` in `UsageViewModel`, which captures the currently-active CLI token and saves a copy under that account's UUID. On `switchAccount(to:)`, if `account.claudeCodeLinked == true`, the view model also calls `ClaudeCodeKeychain.switchTo(id:)` so subsequent `claude` invocations pick up the new account. `removeAccount(_:)` cleans up the saved copy via `ClaudeCodeKeychain.remove(id:)`. Setup flow: user runs `claude` and `/login` with each account once, returns to ClaudeTracker, clicks the terminal icon next to the matching account row. After both accounts are linked, switching accounts in the popover or Settings flips the CLI in <1 second.
 
-**Hardened Runtime:** The Release target build config has `ENABLE_HARDENED_RUNTIME = YES`. This is required for Apple notarization. Do not remove it from the Release configuration in `project.pbxproj`.
+**Hardened Runtime:** The Release target build config has `ENABLE_HARDENED_RUNTIME = YES`. This is required for Apple notarization. Do not remove it from the app target's `configs.Release` in `project.yml`.
 
 **SourceKit false positives:** Persistent "Cannot find type X in scope" errors appear in SourceKit for all cross-file references. These are IDE-level issues and do not reflect real build errors. All builds succeed normally.
 

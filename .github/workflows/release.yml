@@ -17,6 +17,16 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
 
+      # ── Generate Xcode project ──────────────────────────────────────────────
+      # ClaudeTracker.xcodeproj is not committed; project.yml is the source of
+      # truth. `make build`/`make lint` regenerate it, but install xcodegen
+      # explicitly rather than assuming it's on the runner image.
+      - name: Install XcodeGen
+        run: brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+
+      - name: Generate Xcode project
+        run: make generate
+
       # ── Determine signing capability ────────────────────────────────────────
       - name: Check signing capability
         id: caps

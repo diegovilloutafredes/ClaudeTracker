@@ -42,6 +42,7 @@ A macOS menu bar app that shows your [Claude AI](https://claude.ai) usage limits
 
 - macOS 14 Sonoma or later
 - Xcode 15 or later (build from source only)
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen) — `brew install xcodegen` (build from source only)
 - An active [Claude](https://claude.ai) account (Pro, Max, Team, or Enterprise)
 
 ## Installation
@@ -63,13 +64,16 @@ Go to [Releases](https://github.com/diegovilloutafredes/ClaudeTracker/releases) 
 
 ### Build from source
 
+The Xcode project is generated from `project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen) and is not committed, so install that first:
+
 ```bash
+brew install xcodegen
 git clone https://github.com/diegovilloutafredes/ClaudeTracker.git
 cd ClaudeTracker
 make run
 ```
 
-This builds, installs to `/Applications/`, and launches the app in one step.
+`make run` generates the project, builds, installs to `/Applications/`, and launches the app in one step. To open in Xcode instead: `make generate && open ClaudeTracker.xcodeproj`.
 
 To package distributable artifacts (DMG + ZIP):
 

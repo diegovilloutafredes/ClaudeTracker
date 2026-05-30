@@ -5,18 +5,20 @@ Contributions are welcome — bug fixes, improvements, and new features.
 ## Getting started
 
 ```bash
+brew install xcodegen
 git clone https://github.com/diegovilloutafredes/ClaudeTracker.git
 cd ClaudeTracker
-open ClaudeTracker.xcodeproj
+make generate && open ClaudeTracker.xcodeproj
 ```
 
-No external dependencies. Requires macOS 14+ and Xcode 15+.
+Requires macOS 14+, Xcode 15+, and [XcodeGen](https://github.com/yonaskolb/XcodeGen). The Xcode project is generated from `project.yml` and is **not** committed — run `make generate` (or any `make build`/`run`, which do it for you) before opening it in Xcode. **Edit `project.yml`, never the generated `.xcodeproj`** — your project changes won't survive the next `make generate` otherwise. To add a source file, just create it under `ClaudeTracker/` and regenerate. The app has no runtime dependencies.
 
 ## Build cycle
 
-macOS caches app binaries aggressively. After any code change, run a full clean cycle:
+macOS caches app binaries aggressively. The simplest path is `make run`, which regenerates the project, cleans, builds, installs to `/Applications/`, and launches. To run the clean cycle manually:
 
 ```bash
+make generate   # regenerate ClaudeTracker.xcodeproj from project.yml
 pkill -9 -f ClaudeTracker 2>/dev/null; sleep 1
 rm -rf /Applications/ClaudeTracker.app
 rm -rf ~/Library/Developer/Xcode/DerivedData/ClaudeTracker-*
@@ -46,7 +48,7 @@ cd release/dist && bash install.command
 make tag VERSION=1.2.0
 ```
 
-This checks for a clean working directory, bumps `MARKETING_VERSION` in the Xcode project, commits the change, creates an annotated git tag, and pushes both the commit and the tag. The GitHub Actions release workflow triggers on the tag push and publishes a GitHub Release with the built zip attached.
+This checks for a clean working directory, bumps `MARKETING_VERSION` in `project.yml`, commits the change, creates an annotated git tag, and pushes both the commit and the tag. The GitHub Actions release workflow triggers on the tag push and publishes a GitHub Release with the built zip attached.
 
 Release notes are auto-generated from commit messages between tags. Write commit messages as complete sentences describing what changed and why — they become the release changelog.
 
