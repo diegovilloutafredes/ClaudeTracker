@@ -86,10 +86,10 @@ struct SettingsView: View {
 
             updateRow
 
-            Toggle("Auto-install updates", isOn: $viewModel.autoUpdate)
+            Toggle("Auto-install updates", isOn: $viewModel.updates.autoUpdate)
                 .toggleStyle(GreenSwitchStyle())
-            if viewModel.autoUpdate {
-                Text(viewModel.updateCheckIntervalLabel)
+            if viewModel.updates.autoUpdate {
+                Text(viewModel.updates.updateCheckIntervalLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 20)
@@ -204,19 +204,19 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var updateRow: some View {
-        if let update = viewModel.availableUpdate {
+        if let update = viewModel.updates.availableUpdate {
             updateAvailableContent(update)
         } else {
-            Button(viewModel.isCheckingForUpdates ? "Checking…" : "Check for Updates") {
-                viewModel.checkForUpdates()
+            Button(viewModel.updates.isCheckingForUpdates ? "Checking…" : "Check for Updates") {
+                viewModel.updates.checkForUpdates()
             }
-            .disabled(viewModel.isCheckingForUpdates)
+            .disabled(viewModel.updates.isCheckingForUpdates)
         }
     }
 
     @ViewBuilder
     private func updateAvailableContent(_ update: UpdateInfo) -> some View {
-        switch viewModel.updateDownloadState {
+        switch viewModel.updates.updateDownloadState {
         case .idle:
             HStack(spacing: 8) {
                 Image(systemName: "arrow.down.circle.fill")
@@ -226,7 +226,7 @@ struct SettingsView: View {
                     .font(.subheadline)
                 Spacer()
                 if update.downloadURL != nil {
-                    Button("Install") { viewModel.downloadAndInstall() }
+                    Button("Install") { viewModel.updates.downloadAndInstall() }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                 } else {

@@ -113,8 +113,9 @@ Each Claude account gets its own `WKWebsiteDataStore(forIdentifier:)`, so cookie
 |---|---|
 | `ClaudeTrackerApp.swift` | App entry point, `MenuBarExtra` scene, composed menu bar image |
 | `ClaudeAPIService.swift` | Hidden `WKWebView` for API calls (per-account `WKWebsiteDataStore(forIdentifier:)`); login page loading and cookie polling |
-| `UsageViewModel.swift` | Published state, polling timer, per-account state buckets, UserDefaults persistence, notification dispatch, auto-update, stale data detection, account add/switch/remove lifecycle |
-| `Models.swift` | Codable structs for API responses; `Account` + `AccountStore` + per-account `AccountState`; `MenuBarWindow` display enum; `UpdateInfo`; `computePace()` |
+| `UsageViewModel.swift` | Published state, polling timer, per-account state buckets, UserDefaults persistence, notification dispatch, stale data detection, account add/switch/remove lifecycle |
+| `UpdateService.swift` | In-app updates: GitHub-release checking, adaptive schedule, and auto-install (download → unzip → replace → relaunch) |
+| `Models.swift` | Codable structs for API responses; `Account` + `AccountStore` + per-account `AccountState`; `MenuBarWindow` display enum; `UpdateInfo`; `computePace()` + pure helpers (`adaptiveCheckInterval`, `isWindowReset`, `windowIsStale`) |
 | `LoginView.swift` | `NSViewRepresentable` wrapping the API web view; `LoginWindowController` |
 | `ToastWindowController.swift` | Floating `NSPanel`-based toast, positioned near the top-right corner |
 | `MenuBarView.swift` | Popover content — scalable progress bars (incl. Sonnet sub-window), reset countdowns, charts tab, update banner, account picker |

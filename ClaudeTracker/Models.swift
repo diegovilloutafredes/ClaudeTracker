@@ -63,6 +63,35 @@ func computePace(history: [(Date, Double)], lambda: Double = 2.0) -> (rate: Doub
     return (rate, projectedHours)
 }
 
+/// Derives an adaptive update-check interval from recent release dates: half the average
+/// gap between releases, clamped to [4h, 24h]. Falls back to 12h with fewer than two
+/// dates or no positive gaps.
+func adaptiveCheckInterval(from dates: [Date]) -> TimeInterval {
+    let sorted = dates.sorted(by: >)
+    guard sorted.count >= 2 else { return 12 * 3600 }
+    var gaps: [TimeInterval] = []
+    for i in 0..<(sorted.count - 1) {
+        let gap = sorted[i].timeIntervalSince(sorted[i + 1])
+        if gap > 0 { gaps.append(gap) }
+    }
+    guard !gaps.isEmpty else { return 12 * 3600 }
+    let avg = gaps.reduce(0, +) / Double(gaps.count)
+    return max(4 * 3600, min(24 * 3600, avg * 0.5))
+}
+
+/// True when a window's reset timestamp jumped forward by more than an hour AND utilization
+/// dropped below 5% — the signature of a real reset, not a rolling-expiry timestamp refresh.
+func isWindowReset(previous: Date, next: Date, utilization: Double) -> Bool {
+    next.timeIntervalSince(previous) > 3600 && utilization < 5
+}
+
+/// True when stored usage belongs to a window cycle that has since reset: the reset time has
+/// passed AND the last fetch predates it, so the displayed utilization is definitively stale.
+func windowIsStale(resetsAt: Date?, lastUpdated: Date?, now: Date) -> Bool {
+    guard let resetsAt, let lastUpdated else { return false }
+    return resetsAt < now && lastUpdated < resetsAt
+}
+
 /// Response payload from the `/api/organizations/{id}/usage` endpoint.
 struct UsageResponse: Codable {
     let fiveHour: UsageWindow?
@@ -213,8 +242,8 @@ struct AccountOrganization: Codable {
 
 /// A single timestamped utilization snapshot, stored persistently for the charts tab.
 ///
-/// Sampled at most once every 5 minutes regardless of poll rate, so a 2016-entry cap
-/// covers exactly 7 days — the full 7-day window at this resolution.
+/// Sampled at most once every 5 minutes regardless of poll rate; capped at 8640 entries
+/// (30 days at this resolution) and pruned to a 30-day window.
 struct UsageDataPoint: Codable, Identifiable {
     let timestamp: Date
     let fiveHour: Double?

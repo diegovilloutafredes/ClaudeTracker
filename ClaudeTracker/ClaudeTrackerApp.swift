@@ -14,7 +14,9 @@ struct ClaudeTrackerApp: App {
         // per-account data from the sandbox container path on first launch
         // after the App Sandbox entitlement was removed.
         SandboxMigration.runIfNeeded()
-        _viewModel = State(initialValue: UsageViewModel())
+        let viewModel = UsageViewModel()
+        viewModel.start()
+        _viewModel = State(initialValue: viewModel)
     }
 
     var body: some Scene {

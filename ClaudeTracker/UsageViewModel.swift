@@ -3,26 +3,14 @@ import AppKit
 import Combine
 import WebKit
 
-enum UpdateDownloadState {
-    case idle
-    case downloading
-    case installing
-    case failed(String)
-}
-
 /// Central state for the app — owns API polling, UserDefaults persistence, and notification dispatch.
 @Observable @MainActor
 final class UsageViewModel {
-    var availableUpdate: UpdateInfo? = nil
-    var isCheckingForUpdates = false
-    var updateDownloadState: UpdateDownloadState = .idle
-    var autoUpdate: Bool = false {
-        didSet {
-            guard autoUpdate != oldValue else { return }
-            UserDefaults.standard.set(autoUpdate, forKey: "autoUpdate")
-            schedulePeriodicUpdateCheck()
-        }
-    }
+    /// Owns the in-app update flow (check / download / auto-install). Views read
+    /// `viewModel.updates.<x>`; SwiftUI's transitive `@Observable` tracking keeps them current.
+    /// `var` (never reassigned) so `@Bindable`'s `$viewModel.updates.autoUpdate` resolves to a
+    /// reference-writable key path for the Settings toggle.
+    var updates = UpdateService()
     /// Which window's utilization the menu bar label tracks.
     var menuBarWindow: MenuBarWindow = .fiveHour {
         didSet {
@@ -50,13 +38,7 @@ final class UsageViewModel {
     /// per-account bucket directly so a mid-fetch account switch can't cross-contaminate state.
     var usage: UsageResponse? { activeState?.usage }
     /// Active account's last error message.
-    var error: String? {
-        get { activeState?.error }
-        set {
-            guard let id = activeAccountID else { return }
-            statesByAccount[id, default: .init()].error = newValue
-        }
-    }
+    var error: String? { activeState?.error }
     /// Active account's last successful fetch timestamp.
     var lastUpdated: Date? { activeState?.lastUpdated }
     /// Active account's account profile (display name, email, subscription label).
@@ -160,19 +142,9 @@ final class UsageViewModel {
     /// is rebuilt against a different `WKWebsiteDataStore` whenever the active account changes.
     @ObservationIgnored var apiService: ClaudeAPIService?
     @ObservationIgnored private var timer: Task<Void, Never>?
-    @ObservationIgnored private var updateCheckTimer: AnyCancellable?
     @ObservationIgnored private var appearanceCancellable: AnyCancellable?
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
-    @ObservationIgnored private var lastNotifiedUpdateVersion: String = ""
-    /// Adaptive check interval (seconds), computed from release cadence. Clamped 4h–24h.
-    private var nextCheckInterval: TimeInterval = 12 * 3600
-
-    var updateCheckIntervalLabel: String {
-        let h = (nextCheckInterval / 3600).rounded()
-        if h < 24 { return "Checks every ~\(Int(h))h — on launch and wake" }
-        return "Checks every ~\(max(1, Int((h / 24).rounded())))d — on launch and wake"
-    }
     /// Avoids rebuilding `menuBarImage` when neither the icon name nor the status text has
     /// changed. Internal so the `UsageViewModelMenuBar.swift` extension can read/write.
     var cachedMenuBarKey = ""
@@ -181,7 +153,13 @@ final class UsageViewModel {
     init() {
         loadPersistedPreferences()
         isInitialized = true
+    }
 
+    /// Performs all side-effecting startup work: the wake observer, account load + polling,
+    /// the update service, and the appearance subscription. Kept out of `init` so a bare
+    /// `UsageViewModel()` can be constructed in tests without spawning network tasks,
+    /// observers, or the legacy-session migration. Called once from `ClaudeTrackerApp`.
+    func start() {
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -190,13 +168,12 @@ final class UsageViewModel {
                 try? await Task.sleep(for: .seconds(5))
                 self?.fetchUsage()
                 try? await Task.sleep(for: .seconds(25))
-                self?.checkForUpdates()
+                self?.updates.checkForUpdates()
             }
         }
 
         loadAccountsAndStartActive()
-        Task { try? await Task.sleep(for: .seconds(10)); checkForUpdates() }
-        schedulePeriodicUpdateCheck()
+        updates.start()
 
         // `NSApp` is nil at this point on macOS 26 because `UsageViewModel` is allocated as a
         // `@State` initializer inside `ClaudeTrackerApp.init`, before `NSApplication.shared`
@@ -262,12 +239,8 @@ final class UsageViewModel {
         showSonnetWindow = UserDefaults.standard.object(forKey: "showSonnetWindow") as? Bool ?? true
         // Legacy `usageHistory` (single-account) is migrated into the per-account namespace
         // by `migrateLegacySessionIfPresent`; do not load it here.
-
-        lastNotifiedUpdateVersion = UserDefaults.standard.string(forKey: "lastNotifiedUpdateVersion") ?? ""
-        let savedCheckInterval = UserDefaults.standard.double(forKey: "updateCheckInterval")
-        if savedCheckInterval >= 4 * 3600 { nextCheckInterval = savedCheckInterval }
-        // Load autoUpdate last so its didSet fires with nextCheckInterval already correct.
-        autoUpdate = UserDefaults.standard.object(forKey: "autoUpdate") as? Bool ?? false
+        // Update preferences (autoUpdate, lastNotifiedUpdateVersion, updateCheckInterval) are
+        // loaded by `UpdateService.start()`.
     }
 
     // MARK: - Multi-Account Lifecycle
@@ -454,12 +427,6 @@ final class UsageViewModel {
         copy[idx].label = trimmed
         accounts = copy
         AccountStore.saveAccounts(accounts)
-    }
-
-    /// Back-compat wrapper for callers that still use `signOut()` semantics — removes the
-    /// currently active account.
-    func signOut() {
-        if let id = activeAccountID { removeAccount(id) }
     }
 
     // MARK: - Migration
@@ -695,7 +662,7 @@ final class UsageViewModel {
         }
     }
 
-    private func intervalForProjMins(_ projMins: Double) -> TimeInterval {
+    func intervalForProjMins(_ projMins: Double) -> TimeInterval {
         switch projMins {
         case 60...: return 10
         case 30...: return 8
@@ -731,14 +698,12 @@ final class UsageViewModel {
         guard let usage, let lastUpdated else { return false }
         let now = Date()
         return [usage.fiveHour, usage.sevenDay].compactMap { $0 }.contains { window in
-            guard let resetDate = window.resetsAtDate else { return false }
-            return resetDate < now && lastUpdated < resetDate
+            windowIsStale(resetsAt: window.resetsAtDate, lastUpdated: lastUpdated, now: now)
         }
     }
 
     func isWindowStale(_ window: UsageWindow) -> Bool {
-        guard let lastUpdated, let resetDate = window.resetsAtDate else { return false }
-        return resetDate < Date() && lastUpdated < resetDate
+        windowIsStale(resetsAt: window.resetsAtDate, lastUpdated: lastUpdated, now: Date())
     }
 
     var statusText: String {
@@ -814,8 +779,7 @@ final class UsageViewModel {
            let oldDate = prev["five_hour"],
            let newWindow = new.fiveHour,
            let newDate = newWindow.resetsAtDate,
-           newDate.timeIntervalSince(oldDate) > 3600,
-           newWindow.utilization < 5 {
+           isWindowReset(previous: oldDate, next: newDate, utilization: newWindow.utilization) {
             resets.append(String(localized: "5-Hour Window"))
         }
 
@@ -823,8 +787,7 @@ final class UsageViewModel {
            let oldDate = prev["seven_day"],
            let newWindow = new.sevenDay,
            let newDate = newWindow.resetsAtDate,
-           newDate.timeIntervalSince(oldDate) > 3600,
-           newWindow.utilization < 5 {
+           isWindowReset(previous: oldDate, next: newDate, utilization: newWindow.utilization) {
             resets.append(String(localized: "7-Day Window"))
         }
 
@@ -876,7 +839,7 @@ final class UsageViewModel {
 
     /// Appends the current utilization readings to the rolling history for each window.
     ///
-    /// Readings older than 15 minutes are discarded. If utilization for a window drops by
+    /// Readings older than 5 minutes are discarded. If utilization for a window drops by
     /// more than 20 percentage points compared to the last recorded value, the history is
     /// cleared first — this handles window resets, which drop utilization back to near zero.
     private func recordHistory(accountID: UUID, response: UsageResponse) {
@@ -984,202 +947,4 @@ final class UsageViewModel {
         saveUsageHistory(history, for: accountID)
     }
 
-    // MARK: - Update Check
-
-    /// Fetches the last 10 GitHub releases, checks for a newer version, and updates the adaptive
-    /// check interval from the release cadence. Safe to call multiple times — debounced by
-    /// `isCheckingForUpdates`.
-    func checkForUpdates() {
-        guard !isCheckingForUpdates else { return }
-        if case .failed = updateDownloadState { updateDownloadState = .idle }
-        isCheckingForUpdates = true
-        Task {
-            defer { isCheckingForUpdates = false }
-            guard let url = URL(string: "https://api.github.com/repos/diegovilloutafredes/ClaudeTracker/releases?per_page=10") else { return }
-            var req = URLRequest(url: url)
-            req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-            req.timeoutInterval = 10
-            guard let (data, _) = try? await URLSession.shared.data(for: req),
-                  let releases = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-                  let latest = releases.first,
-                  let tag = latest["tag_name"] as? String,
-                  let htmlUrl = latest["html_url"] as? String,
-                  let releaseUrl = URL(string: htmlUrl) else { return }
-
-            let remote  = tag.trimmingCharacters(in: .init(charactersIn: "v"))
-            let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
-            if isNewerVersion(remote, than: current) {
-                let assets = latest["assets"] as? [[String: Any]]
-                let zipAsset = assets?.first { ($0["name"] as? String)?.hasSuffix(".zip") == true }
-                let downloadURL = (zipAsset?["browser_download_url"] as? String).flatMap(URL.init)
-                availableUpdate = UpdateInfo(version: remote, releaseURL: releaseUrl, downloadURL: downloadURL)
-
-                // Only notify once per discovered version (persisted across restarts)
-                if lastNotifiedUpdateVersion != remote {
-                    lastNotifiedUpdateVersion = remote
-                    UserDefaults.standard.set(remote, forKey: "lastNotifiedUpdateVersion")
-                    if autoUpdate, downloadURL != nil {
-                        if case .idle = updateDownloadState { triggerAutoInstall() }
-                    } else {
-                        ToastWindowController.shared.show(
-                            title: String(localized: "Update available"),
-                            message: String(format: String(localized: "v%@ is ready — open Settings to install"), remote),
-                            icon: "arrow.up.circle.fill",
-                            iconColor: .green,
-                            duration: 12,
-                            permanent: false
-                        )
-                    }
-                }
-            }
-
-            let computed = computeCheckInterval(from: releases)
-            if computed != nextCheckInterval {
-                nextCheckInterval = computed
-                UserDefaults.standard.set(computed, forKey: "updateCheckInterval")
-                AppLogger.shared.info("update check interval adjusted to \(Int(computed / 3600))h based on release cadence")
-                if autoUpdate { schedulePeriodicUpdateCheck() }
-            }
-        }
-    }
-
-    /// Derives a check interval from the average gap between the last N release dates.
-    /// Clamped to [4h, 24h]; defaults to 12h when history is insufficient.
-    private func computeCheckInterval(from releases: [[String: Any]]) -> TimeInterval {
-        let fmt = ISO8601DateFormatter()
-        let dates = releases.compactMap { r -> Date? in
-            guard let s = r["published_at"] as? String else { return nil }
-            return fmt.date(from: s)
-        }.sorted(by: >)
-        guard dates.count >= 2 else { return 12 * 3600 }
-        var gaps: [TimeInterval] = []
-        for i in 0..<(dates.count - 1) {
-            let gap = dates[i].timeIntervalSince(dates[i + 1])
-            if gap > 0 { gaps.append(gap) }
-        }
-        guard !gaps.isEmpty else { return 12 * 3600 }
-        let avg = gaps.reduce(0, +) / Double(gaps.count)
-        return max(4 * 3600, min(24 * 3600, avg * 0.5))
-    }
-
-    private func schedulePeriodicUpdateCheck() {
-        updateCheckTimer?.cancel()
-        updateCheckTimer = nil
-        guard autoUpdate else { return }
-        updateCheckTimer = Timer.publish(every: nextCheckInterval, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in self?.checkForUpdates() }
-    }
-
-    private func triggerAutoInstall() {
-        guard let update = availableUpdate, update.downloadURL != nil else { return }
-        let msg = String(format: String(localized: "v%@ found — installing in ~10s"), update.version)
-        ToastWindowController.shared.show(
-            title: String(localized: "Update available"),
-            message: msg,
-            icon: "arrow.down.circle.fill",
-            iconColor: .green,
-            duration: 12,
-            permanent: false
-        )
-        Task {
-            try? await Task.sleep(for: .seconds(10))
-            downloadAndInstall()
-        }
-    }
-
-    func downloadAndInstall() {
-        guard let update = availableUpdate, let downloadURL = update.downloadURL else { return }
-        guard case .idle = updateDownloadState else { return }
-        updateDownloadState = .downloading
-
-        let tmpBase = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("ClaudeTrackerUpdate")
-
-        Task {
-            do {
-                try? FileManager.default.removeItem(at: tmpBase)
-                try FileManager.default.createDirectory(at: tmpBase, withIntermediateDirectories: true)
-
-                // Download ZIP
-                let (tempURL, _) = try await URLSession.shared.download(from: downloadURL)
-                let zipURL = tmpBase.appendingPathComponent("update.zip")
-                try FileManager.default.moveItem(at: tempURL, to: zipURL)
-
-                // Extract on background thread (waitUntilExit blocks)
-                let extractDir = tmpBase.appendingPathComponent("extracted")
-                let appURL: URL = try await withCheckedThrowingContinuation { cont in
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        do {
-                            try FileManager.default.createDirectory(at: extractDir, withIntermediateDirectories: true)
-                            let unzip = Process()
-                            unzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-                            unzip.arguments = ["-o", zipURL.path, "-d", extractDir.path]
-                            try unzip.run()
-                            unzip.waitUntilExit()
-                            guard unzip.terminationStatus == 0 else {
-                                cont.resume(throwing: UpdateError.extractionFailed); return
-                            }
-                            let items = (try? FileManager.default.contentsOfDirectory(
-                                at: extractDir, includingPropertiesForKeys: nil)) ?? []
-                            if let app = items.first(where: { $0.pathExtension == "app" }) {
-                                cont.resume(returning: app)
-                            } else {
-                                cont.resume(throwing: UpdateError.appNotFound)
-                            }
-                        } catch {
-                            cont.resume(throwing: error)
-                        }
-                    }
-                }
-
-                updateDownloadState = .installing
-
-                // Try direct install (works when sandbox is not enforced)
-                let dest = URL(fileURLWithPath: "/Applications/ClaudeTracker.app")
-                let directOK: Bool = await withCheckedContinuation { cont in
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        try? FileManager.default.removeItem(at: dest)
-                        cont.resume(returning: (try? FileManager.default.copyItem(at: appURL, to: dest)) != nil)
-                    }
-                }
-
-                // Fail gracefully if copy was blocked (e.g. sandbox in signed dev builds).
-                // Never open install.command or terminate without a successful install.
-                guard directOK else { throw UpdateError.installationFailed }
-
-                // Relaunch: try a detached shell script first (works in unsigned release builds).
-                // Fall back to NSWorkspace.open when Process is sandbox-blocked.
-                let relaunchScript = "#!/bin/bash\nsleep 1.5\nopen \"/Applications/ClaudeTracker.app\"\n"
-                let scriptURL = tmpBase.appendingPathComponent("relaunch.sh")
-                var usedScript = false
-                if (try? relaunchScript.write(to: scriptURL, atomically: true, encoding: .utf8)) != nil {
-                    let p = Process()
-                    p.executableURL = URL(fileURLWithPath: "/bin/bash")
-                    p.arguments = [scriptURL.path]
-                    usedScript = (try? p.run()) != nil
-                }
-                try await Task.sleep(for: .milliseconds(300))
-                if !usedScript {
-                    NSWorkspace.shared.open(dest)
-                    try await Task.sleep(for: .milliseconds(500))
-                }
-                NSApp.terminate(nil)
-            } catch {
-                AppLogger.shared.error("auto-update failed: \(error)")
-                updateDownloadState = .failed(error.localizedDescription)
-            }
-        }
-    }
-
-    private enum UpdateError: LocalizedError {
-        case extractionFailed, appNotFound, installationFailed
-        var errorDescription: String? {
-            switch self {
-            case .extractionFailed:   return String(localized: "Failed to extract update")
-            case .appNotFound:        return String(localized: "Update package is invalid")
-            case .installationFailed: return String(localized: "Installation failed")
-            }
-        }
-    }
 }

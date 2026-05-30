@@ -165,6 +165,97 @@ final class ClaudeTrackerTests: XCTestCase {
         XCTAssertNil(result!.projectedHours)
     }
 
+    // MARK: - Adaptive update-check interval
+
+    func testAdaptiveCheckIntervalDefaultsWithoutEnoughDates() {
+        XCTAssertEqual(adaptiveCheckInterval(from: []), 12 * 3600, accuracy: 0.5)
+        XCTAssertEqual(adaptiveCheckInterval(from: [Date()]), 12 * 3600, accuracy: 0.5)
+    }
+
+    func testAdaptiveCheckIntervalClampsToFloor() {
+        // Two releases 8h apart → half = 4h (the floor).
+        let now = Date()
+        XCTAssertEqual(adaptiveCheckInterval(from: [now, now.addingTimeInterval(-8 * 3600)]),
+                       4 * 3600, accuracy: 0.5)
+    }
+
+    func testAdaptiveCheckIntervalClampsToCeiling() {
+        // ~10 days apart → half = 5 days, clamped to the 24h ceiling.
+        let now = Date()
+        XCTAssertEqual(adaptiveCheckInterval(from: [now, now.addingTimeInterval(-10 * 24 * 3600)]),
+                       24 * 3600, accuracy: 0.5)
+    }
+
+    func testAdaptiveCheckIntervalAveragesGapsAndIgnoresOrder() {
+        // Gaps of 20h and 40h → avg 30h → half = 15h. Input deliberately unsorted.
+        let now = Date()
+        let dates = [now.addingTimeInterval(-60 * 3600), now, now.addingTimeInterval(-20 * 3600)]
+        XCTAssertEqual(adaptiveCheckInterval(from: dates), 15 * 3600, accuracy: 1)
+    }
+
+    // MARK: - Window reset detection
+
+    func testIsWindowResetTrueOnLargeForwardJumpAndLowUtil() {
+        let prev = Date()
+        XCTAssertTrue(isWindowReset(previous: prev, next: prev.addingTimeInterval(5 * 3600), utilization: 2))
+    }
+
+    func testIsWindowResetFalseAtExactlyOneHour() {
+        let prev = Date()
+        XCTAssertFalse(isWindowReset(previous: prev, next: prev.addingTimeInterval(3600), utilization: 0))
+    }
+
+    func testIsWindowResetFalseWhenUtilizationStillHigh() {
+        let prev = Date()
+        XCTAssertFalse(isWindowReset(previous: prev, next: prev.addingTimeInterval(5 * 3600), utilization: 6))
+    }
+
+    // MARK: - Stale data detection
+
+    func testWindowIsStaleWhenResetPassedAfterLastFetch() {
+        let now = Date()
+        XCTAssertTrue(windowIsStale(resetsAt: now.addingTimeInterval(-3600),
+                                    lastUpdated: now.addingTimeInterval(-2 * 3600), now: now))
+    }
+
+    func testWindowIsStaleFalseWhenFetchedAfterReset() {
+        let now = Date()
+        XCTAssertFalse(windowIsStale(resetsAt: now.addingTimeInterval(-3600),
+                                     lastUpdated: now.addingTimeInterval(-600), now: now))
+    }
+
+    func testWindowIsStaleFalseWhenResetInFuture() {
+        let now = Date()
+        XCTAssertFalse(windowIsStale(resetsAt: now.addingTimeInterval(3600),
+                                     lastUpdated: now.addingTimeInterval(-600), now: now))
+    }
+
+    func testWindowIsStaleFalseWhenNilInputs() {
+        let now = Date()
+        XCTAssertFalse(windowIsStale(resetsAt: nil, lastUpdated: now, now: now))
+        XCTAssertFalse(windowIsStale(resetsAt: now, lastUpdated: nil, now: now))
+    }
+
+    // MARK: - Poll interval from projected minutes
+    // Exercises the construction/startup split: a bare UsageViewModel() is now
+    // constructible in tests because init() no longer spawns tasks/observers.
+
+    @MainActor
+    func testIntervalForProjMinsBoundaries() {
+        let vm = UsageViewModel()
+        XCTAssertEqual(vm.intervalForProjMins(120), 10)
+        XCTAssertEqual(vm.intervalForProjMins(60), 10)
+        XCTAssertEqual(vm.intervalForProjMins(45), 8)
+        XCTAssertEqual(vm.intervalForProjMins(30), 8)
+        XCTAssertEqual(vm.intervalForProjMins(20), 5)
+        XCTAssertEqual(vm.intervalForProjMins(15), 5)
+        XCTAssertEqual(vm.intervalForProjMins(10), 3)
+        XCTAssertEqual(vm.intervalForProjMins(5), 3)
+        XCTAssertEqual(vm.intervalForProjMins(3), 2)
+        XCTAssertEqual(vm.intervalForProjMins(2), 2)
+        XCTAssertEqual(vm.intervalForProjMins(1), 1)
+    }
+
     // MARK: - Helpers
 
     private func makeInfo(caps: [String], tier: String) -> AccountInfo {

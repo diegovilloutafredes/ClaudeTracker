@@ -199,15 +199,6 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
         return try JSONDecoder().decode(UsageResponse.self, from: data)
     }
 
-    /// Clears the cached organisation ID and marks the page as not ready.
-    ///
-    /// Call this after sign-out or when a 401/403 response indicates the session is stale.
-    func clearCache() {
-        cachedOrgId = nil
-        cachedOrgName = nil
-        isPageReady = false
-    }
-
     // MARK: - Private
 
     private func resolveOrgId() async throws -> String {

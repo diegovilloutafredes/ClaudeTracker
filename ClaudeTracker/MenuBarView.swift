@@ -17,7 +17,7 @@ struct MenuBarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 17 * s) {
             header
-            if let update = viewModel.availableUpdate {
+            if let update = viewModel.updates.availableUpdate {
                 updateBanner(update)
             }
             if viewModel.isAuthenticated && viewModel.showChartsTab {
@@ -58,10 +58,10 @@ struct MenuBarView: View {
                 .font(sf(11, .semibold))
             Spacer()
             Group {
-                switch viewModel.updateDownloadState {
+                switch viewModel.updates.updateDownloadState {
                 case .idle:
                     if update.downloadURL != nil {
-                        Button("Install") { viewModel.downloadAndInstall() }
+                        Button("Install") { viewModel.updates.downloadAndInstall() }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
                             .tint(.green)
