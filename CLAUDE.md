@@ -44,7 +44,7 @@ make tag VERSION=1.2.0
 
 This requires a clean working directory. It bumps `MARKETING_VERSION` in `project.yml` (the XcodeGen source of truth — the `.xcodeproj` is generated and git-ignored), commits the bump, creates an annotated git tag, and pushes both the commit and the tag. The GitHub Actions release workflow (`.github/workflows/release.yml`) triggers on the tag and publishes a GitHub Release with the zip attached.
 
-The build uses `SIGNING_FLAGS="CODE_SIGNING_ALLOWED=NO"` and `SWIFT_STRICT_CONCURRENCY=minimal` on CI (both set in the Makefile). Do not remove `SWIFT_STRICT_CONCURRENCY=minimal` — Xcode 16 on `macos-15` treats some concurrency patterns as errors without it.
+The build uses `SIGNING_FLAGS="CODE_SIGNING_ALLOWED=NO"` and `SWIFT_STRICT_CONCURRENCY=minimal` on CI (both set in the Makefile). Do not remove `SWIFT_STRICT_CONCURRENCY=minimal` — newer Xcode on CI (currently Xcode 26.5 on `macos-26`) treats some concurrency patterns as errors without it.
 
 The release workflow (`.github/workflows/release.yml`) has conditional signing: a `Check signing capability` step outputs `sign=true/false` based on whether `SIGNING_CERTIFICATE` is set as a repo secret. Subsequent sign/notarize/staple steps gate on this output. Both a DMG and a ZIP are attached to every GitHub Release; the ZIP includes `install.command` as a fallback for unsigned installs.
 
