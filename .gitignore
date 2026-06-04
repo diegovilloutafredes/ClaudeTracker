@@ -42,3 +42,4 @@ release/
 *.p8
 *.mobileprovision
 *.provisionprofile
+.superpowers/
