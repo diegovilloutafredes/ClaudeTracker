@@ -7,7 +7,7 @@ on:
 
 jobs:
   release:
-    runs-on: macos-15
+    runs-on: macos-26
     permissions:
       contents: write
 
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
+        run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
 
       # ── Generate Xcode project ──────────────────────────────────────────────
       # ClaudeTracker.xcodeproj is not committed; project.yml is the source of
