@@ -4,7 +4,7 @@ import os
 /// Lightweight logger: writes to os.log (visible in Console.app) and to a
 /// rolling file in ~/Library/Logs/ClaudeTracker/ (or the sandboxed container
 /// equivalent). Max file size 512 KB; one rotation kept as claudetracker.1.log.
-final class AppLogger: @unchecked Sendable {
+final class AppLogger: Sendable {
     static let shared = AppLogger()
 
     private let osLog = Logger(subsystem: "com.claudetracker.app", category: "app")
@@ -26,11 +26,14 @@ final class AppLogger: @unchecked Sendable {
     func info(_ msg: String)  { write(msg, level: "INFO");  osLog.info("\(msg, privacy: .public)") }
     func error(_ msg: String) { write(msg, level: "ERROR"); osLog.error("\(msg, privacy: .public)") }
 
-    /// Returns the last `maxBytes` of the log file as a string.
+    /// Returns the last `maxBytes` of the log file as a string. Reads on the logger
+    /// queue so it can't observe a mid-append or mid-rotation file.
     func tail(maxBytes: Int = 32_768) -> String {
-        guard let url = logFileURL,
-              let data = try? Data(contentsOf: url) else { return "(no log file)" }
-        return String(data: data.suffix(maxBytes), encoding: .utf8) ?? "(unreadable)"
+        guard let url = logFileURL else { return "(no log file)" }
+        return queue.sync {
+            guard let data = try? Data(contentsOf: url) else { return "(no log file)" }
+            return String(data: data.suffix(maxBytes), encoding: .utf8) ?? "(unreadable)"
+        }
     }
 
     private func write(_ msg: String, level: String) {
@@ -57,9 +60,16 @@ final class AppLogger: @unchecked Sendable {
         }
     }
 
-    private func timestamp() -> String {
+    /// `ISO8601DateFormatter` is documented thread-safe (hence `nonisolated(unsafe)` —
+    /// the type just lacks a Sendable annotation); one shared instance avoids allocating
+    /// a formatter on the caller's thread for every log line (polls log every 1–10 s).
+    private nonisolated(unsafe) static let timestampFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f.string(from: Date())
+        return f
+    }()
+
+    private func timestamp() -> String {
+        Self.timestampFormatter.string(from: Date())
     }
 }

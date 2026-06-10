@@ -88,7 +88,11 @@ final class ToastWindowController {
             ctx.duration = fadeDuration
             panel.animator().alphaValue = 0
         }, completionHandler: {
-            panel.close()
+            // AppKit invokes the completion on the main thread; assumeIsolated makes
+            // that visible to strict concurrency.
+            MainActor.assumeIsolated {
+                panel.close()
+            }
             // Shift remaining toasts up after the dismissed one disappears.
             Task { @MainActor [weak self] in
                 self?.shiftAllToCorrectPositions()
@@ -159,6 +163,7 @@ private struct ToastView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Text("Dismiss"))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)

@@ -38,14 +38,15 @@ final class LoginWindowController {
         apiService.onPopupDismissed = { [weak self] in
             self?.closePopup()
         }
+
+        // A second `open` while the window is already visible abandons the previous
+        // sign-in attempt (e.g. "Add account" clicked twice): run its rollback so the
+        // earlier placeholder account doesn't linger in the roster.
+        let isReuse = window?.isVisible == true
+        if isReuse, !sessionFound { self.onCancel?() }
+
         sessionFound = false
         self.onCancel = onCancel
-
-        if let existing = window, existing.isVisible {
-            existing.makeKeyAndOrderFront(nil)
-            NSApp.activate()
-            return
-        }
 
         let loginView = LoginView(
             apiService: apiService,
@@ -57,6 +58,19 @@ final class LoginWindowController {
                 }
             }
         )
+
+        if isReuse, let existing = window {
+            // Rebind the window to the new apiService and callbacks. Keeping the old
+            // content view would capture the session into the wrong account's data
+            // store and fire the wrong onSessionFound. Swapping the hosting view runs
+            // the old LoginView's onDisappear (stops its cookie polling) and the new
+            // one's onAppear (loads the login page on the new web view).
+            existing.contentView = NSHostingView(rootView: loginView)
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate()
+            return
+        }
+
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],

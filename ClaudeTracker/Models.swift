@@ -11,10 +11,11 @@ func urgencyColor(_ urgency: Double) -> Color {
 /// Shared 3-band color for pace UI (rate text, outlook message, chart projection line).
 /// `proj` is projected hours to 100%; `hoursToReset` is time until window reset.
 func paceUrgencyColor(proj: Double, hoursToReset: Double) -> Color {
-    guard proj > 0, hoursToReset > 0 else { return .secondary }
-    if proj >= hoursToReset { return .secondary }
-    if proj >= hoursToReset * 0.8 { return urgencyColor(0.7) }
-    return urgencyColor(1.0)
+    switch PaceBand(projectedHours: proj, hoursToReset: hoursToReset) {
+    case .safe:  return .secondary
+    case .close: return urgencyColor(0.7)
+    case .over:  return urgencyColor(1.0)
+    }
 }
 
 /// Returns true when `remote` is a higher semantic version than `current`.
@@ -92,8 +93,153 @@ func windowIsStale(resetsAt: Date?, lastUpdated: Date?, now: Date) -> Bool {
     return resetsAt < now && lastUpdated < resetsAt
 }
 
+// MARK: - UserDefaults Keys
+
+/// UserDefaults keys for all persisted preferences. Every key is written in a `didSet`
+/// and read back in startup loading — a single namespace prevents a typo from silently
+/// desyncing the write and read sides.
+enum PrefKey {
+    static let menuBarWindow = "menuBarWindow"
+    static let notify5Hour = "notify5Hour"
+    static let notify7Day = "notify7Day"
+    static let notifyToast = "notifyToast"
+    static let notifySound = "notifySound"
+    static let toastDuration = "toastDuration"
+    static let toastPermanent = "toastPermanent"
+    static let showPace = "showPace"
+    static let showPaceMenuBar = "showPaceMenuBar"
+    static let paceRateUnit = "paceRateUnit"
+    static let notifyPace = "notifyPace"
+    static let paceWarningMinutes = "paceWarningMinutes"
+    static let paceToastEnabled = "paceToastEnabled"
+    static let paceToastDuration = "paceToastDuration"
+    static let paceToastPermanent = "paceToastPermanent"
+    static let paceSoundEnabled = "paceSoundEnabled"
+    static let popupScale = "popupScale"
+    static let popupScaleRebased = "popupScaleRebased"
+    static let showChartsTab = "showChartsTab"
+    static let showSonnetWindow = "showSonnetWindow"
+    static let notificationDefaultsVersion = "notificationDefaultsVersion"
+    static let accountsMigrationVersion = "accountsMigrationVersion"
+    static let autoUpdate = "autoUpdate"
+    static let lastNotifiedUpdateVersion = "lastNotifiedUpdateVersion"
+    static let updateCheckInterval = "updateCheckInterval"
+    /// Pre-multi-account chart history blob; migrated to `usageHistory.<accountID>`.
+    static let legacyUsageHistory = "usageHistory"
+}
+
+// MARK: - Polling Tuning
+
+/// Computes the adaptive polling interval for a single usage window.
+///
+/// Mirrors the documented tiers:
+///   - Window stale (reset already passed): 2 s — catch the new window fast
+///   - Utilization ≥ 99.9% with known reset: 10–300 s based on time until reset (30 s if unknown)
+///   - Active with pace available: 1–10 s based on projected minutes to full
+///   - Active without pace: 3–10 s based on utilization level
+func pollInterval(utilization: Double, resetsAt: Date?, projectedMinutes: Double?, now: Date = Date()) -> TimeInterval {
+    // Stale: reset already passed — poll aggressively to catch the new window
+    if let resetsAt, resetsAt < now {
+        return 2
+    }
+
+    // At 100%: only need to catch the upcoming reset
+    if utilization >= 99.9 {
+        guard let resetsAt else { return 30 }
+        let secs = max(0, resetsAt.timeIntervalSince(now))
+        switch secs {
+        case 1800...: return 300
+        case 600...:  return 120
+        case 120...:  return 30
+        default:      return 10
+        }
+    }
+
+    // Active: use projected minutes to full when pace is available
+    if let projectedMinutes {
+        return pollIntervalForProjectedMinutes(projectedMinutes)
+    }
+
+    // Fallback: utilization-based steps when no pace signal yet
+    switch utilization {
+    case 95...: return 3
+    case 80...: return 5
+    case 50...: return 8
+    default:    return 10
+    }
+}
+
+/// Poll interval tier for a window that is actively filling, from projected minutes to full.
+func pollIntervalForProjectedMinutes(_ projMins: Double) -> TimeInterval {
+    switch projMins {
+    case 60...: return 10
+    case 30...: return 8
+    case 15...: return 5
+    case 5...:  return 3
+    case 2...:  return 2
+    default:    return 1
+    }
+}
+
+/// Additional poll delay after consecutive fetch errors: 10 s per error, capped at 60 s.
+func errorBackoff(consecutiveErrors: Int) -> TimeInterval {
+    consecutiveErrors > 0 ? min(Double(consecutiveErrors) * 10, 60) : 0
+}
+
+// MARK: - Pace History Maintenance
+
+/// True when the rolling pace history must be cleared because the window reset.
+///
+/// A reset shows up either as a drop of more than 20 percentage points, or as utilization
+/// falling below 5% from at or above 5% — the latter catches resets from low utilization
+/// that the drop threshold would miss.
+func shouldResetPaceHistory(last: Double, current: Double) -> Bool {
+    last - current > 20 || (current < 5 && last >= 5)
+}
+
+/// Appends a chart snapshot to persistent history, enforcing the sampling contract:
+/// at most one point per `minInterval` (returns nil when throttled — caller keeps the old
+/// history), entries older than `maxAge` pruned, and the result capped to the newest `cap`.
+func appendPrunedDataPoint(_ point: UsageDataPoint,
+                           to history: [UsageDataPoint],
+                           lastTimestamp: Date?,
+                           minInterval: TimeInterval = 300,
+                           maxAge: TimeInterval = 30 * 24 * 3600,
+                           cap: Int = 8640) -> [UsageDataPoint]? {
+    if let lastTimestamp, point.timestamp.timeIntervalSince(lastTimestamp) < minInterval { return nil }
+    let cutoff = point.timestamp.addingTimeInterval(-maxAge)
+    var result = history.filter { $0.timestamp >= cutoff }
+    result.append(point)
+    if result.count > cap { result = Array(result.suffix(cap)) }
+    return result
+}
+
+// MARK: - Pace Band
+
+/// The shared 3-band classification for all pace UI (rate text color, outlook message,
+/// chart projection line). Keeps the 0.8× threshold in exactly one place.
+enum PaceBand: Equatable, Sendable {
+    /// Projected fill time is at or beyond the reset — consumption is sustainable.
+    case safe
+    /// Projected fill lands within 80–100% of the time to reset — cutting it close.
+    case close
+    /// Projected to fill before the window resets.
+    case over
+
+    init(projectedHours: Double, hoursToReset: Double) {
+        guard projectedHours > 0, hoursToReset > 0 else { self = .safe; return }
+        if projectedHours >= hoursToReset {
+            self = .safe
+        } else if projectedHours >= hoursToReset * 0.8 {
+            self = .close
+        } else {
+            self = .over
+        }
+    }
+}
+
 /// Response payload from the `/api/organizations/{id}/usage` endpoint.
-struct UsageResponse: Codable {
+struct UsageResponse: Codable, Sendable {
     let fiveHour: UsageWindow?
     let sevenDay: UsageWindow?
     let sevenDayOpus: UsageWindow?
@@ -106,6 +252,27 @@ struct UsageResponse: Codable {
         case sevenDayOpus = "seven_day_opus"
         case sevenDaySonnet = "seven_day_sonnet"
         case extraUsage = "extra_usage"
+    }
+
+    init(fiveHour: UsageWindow?, sevenDay: UsageWindow?, sevenDayOpus: UsageWindow?,
+         sevenDaySonnet: UsageWindow?, extraUsage: ExtraUsage?) {
+        self.fiveHour = fiveHour
+        self.sevenDay = sevenDay
+        self.sevenDayOpus = sevenDayOpus
+        self.sevenDaySonnet = sevenDaySonnet
+        self.extraUsage = extraUsage
+    }
+
+    /// Fail-soft decoding: a malformed sub-window (e.g. the API ships `"utilization": null`
+    /// in `seven_day_opus`, which the UI doesn't even display) must not poison the whole
+    /// response. Each window decodes independently; a failed one becomes nil.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.fiveHour = (try? c.decodeIfPresent(UsageWindow.self, forKey: .fiveHour)) ?? nil
+        self.sevenDay = (try? c.decodeIfPresent(UsageWindow.self, forKey: .sevenDay)) ?? nil
+        self.sevenDayOpus = (try? c.decodeIfPresent(UsageWindow.self, forKey: .sevenDayOpus)) ?? nil
+        self.sevenDaySonnet = (try? c.decodeIfPresent(UsageWindow.self, forKey: .sevenDaySonnet)) ?? nil
+        self.extraUsage = (try? c.decodeIfPresent(ExtraUsage.self, forKey: .extraUsage)) ?? nil
     }
 
     /// The windows shown in the UI, in display order.
@@ -121,7 +288,7 @@ struct UsageResponse: Codable {
 }
 
 /// A single rate-limit window returned by the usage API.
-struct UsageWindow: Codable {
+struct UsageWindow: Codable, Sendable {
     /// Utilization as a percentage (0–100+; may slightly exceed 100 when overages are permitted).
     let utilization: Double
     /// ISO 8601 timestamp of the next reset. Nil immediately after a reset while the server
@@ -153,13 +320,15 @@ struct UsageWindow: Codable {
         urgencyColor(utilization / 100.0)
     }
 
-    private static let formatterWithFractional: ISO8601DateFormatter = {
+    // ISO8601DateFormatter is documented thread-safe; `nonisolated(unsafe)` only papers
+    // over the missing Sendable annotation on the type.
+    private nonisolated(unsafe) static let formatterWithFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
 
-    private static let formatterWithout: ISO8601DateFormatter = {
+    private nonisolated(unsafe) static let formatterWithout: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         return f
@@ -167,7 +336,7 @@ struct UsageWindow: Codable {
 }
 
 /// Pay-as-you-go credit usage, present when the account has extra usage enabled.
-struct ExtraUsage: Codable {
+struct ExtraUsage: Codable, Sendable {
     let isEnabled: Bool
     let monthlyLimit: Double?
     let usedCredits: Double?
@@ -182,13 +351,13 @@ struct ExtraUsage: Codable {
 }
 
 /// A claude.ai organization, used only to extract the UUID for usage API calls.
-struct Organization: Codable {
+struct Organization: Codable, Sendable {
     let uuid: String
     let name: String
 }
 
 /// Account profile returned by `/api/account`.
-struct AccountInfo: Codable {
+struct AccountInfo: Codable, Sendable {
     let fullName: String?
     let emailAddress: String
     /// Organization memberships; only the first entry is used to determine subscription tier.
@@ -223,12 +392,12 @@ struct AccountInfo: Codable {
     }
 }
 
-struct AccountMembership: Codable {
+struct AccountMembership: Codable, Sendable {
     let organization: AccountOrganization
 }
 
 /// Organization-level fields used to infer subscription tier.
-struct AccountOrganization: Codable {
+struct AccountOrganization: Codable, Sendable {
     let capabilities: [String]?
     let rateLimitTier: String?
 
@@ -244,7 +413,7 @@ struct AccountOrganization: Codable {
 ///
 /// Sampled at most once every 5 minutes regardless of poll rate; capped at 8640 entries
 /// (30 days at this resolution) and pruned to a 30-day window.
-struct UsageDataPoint: Codable, Identifiable {
+struct UsageDataPoint: Codable, Identifiable, Sendable {
     let timestamp: Date
     let fiveHour: Double?
     let sevenDay: Double?
@@ -257,7 +426,7 @@ struct UsageDataPoint: Codable, Identifiable {
 // MARK: - Pace Rate Unit
 
 /// The time unit used to display the consumption rate in the UI.
-enum PaceRateUnit: String, CaseIterable, Identifiable {
+enum PaceRateUnit: String, CaseIterable, Identifiable, Sendable {
     case perHour
     case perMinute
     case perSecond
@@ -302,7 +471,7 @@ enum PaceRateUnit: String, CaseIterable, Identifiable {
 // MARK: - Menu Bar Display Option
 
 /// The rate-limit window whose utilization the menu bar label tracks.
-enum MenuBarWindow: String, CaseIterable, Identifiable {
+enum MenuBarWindow: String, CaseIterable, Identifiable, Sendable {
     case fiveHour = "five_hour"
     case sevenDay = "seven_day"
 
@@ -323,7 +492,7 @@ enum MenuBarWindow: String, CaseIterable, Identifiable {
 ///
 /// `label`, `email`, and `subscriptionLabel` are populated from `/api/account` after
 /// the first successful fetch and may be `nil` immediately after the account is added.
-struct Account: Codable, Identifiable, Hashable {
+struct Account: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     var label: String
     var email: String?
@@ -364,7 +533,7 @@ struct Account: Codable, Identifiable, Hashable {
 /// account id, so a fetch that captures its `accountID` at start always lands its result in the
 /// correct bucket — even if the user switches accounts mid-fetch. Not `Codable`: the fields
 /// that need persisting (`usageHistory`, account roster) are saved through dedicated paths.
-struct AccountState {
+struct AccountState: Sendable {
     var usage: UsageResponse?
     var error: String?
     var lastUpdated: Date?
@@ -398,28 +567,30 @@ enum AccountStore {
     static let accountsKey = "accounts"
     static let activeAccountIDKey = "activeAccountID"
 
-    static func loadAccounts() -> [Account] {
-        guard let data = UserDefaults.standard.data(forKey: accountsKey),
+    static func loadAccounts(from defaults: UserDefaults = .standard) -> [Account] {
+        guard let data = defaults.data(forKey: accountsKey),
               let decoded = try? JSONDecoder().decode([Account].self, from: data) else { return [] }
         return decoded
     }
 
-    static func saveAccounts(_ accounts: [Account]) {
+    static func saveAccounts(_ accounts: [Account], to defaults: UserDefaults = .standard) {
         if let data = try? JSONEncoder().encode(accounts) {
-            UserDefaults.standard.set(data, forKey: accountsKey)
+            defaults.set(data, forKey: accountsKey)
+        } else {
+            AppLogger.shared.error("accounts encode failed — roster not persisted")
         }
     }
 
-    static func loadActiveID() -> UUID? {
-        guard let s = UserDefaults.standard.string(forKey: activeAccountIDKey) else { return nil }
+    static func loadActiveID(from defaults: UserDefaults = .standard) -> UUID? {
+        guard let s = defaults.string(forKey: activeAccountIDKey) else { return nil }
         return UUID(uuidString: s)
     }
 
-    static func saveActiveID(_ id: UUID?) {
+    static func saveActiveID(_ id: UUID?, to defaults: UserDefaults = .standard) {
         if let id {
-            UserDefaults.standard.set(id.uuidString, forKey: activeAccountIDKey)
+            defaults.set(id.uuidString, forKey: activeAccountIDKey)
         } else {
-            UserDefaults.standard.removeObject(forKey: activeAccountIDKey)
+            defaults.removeObject(forKey: activeAccountIDKey)
         }
     }
 
@@ -430,7 +601,7 @@ enum AccountStore {
 }
 
 /// A newer version discovered via the GitHub Releases API.
-struct UpdateInfo {
+struct UpdateInfo: Sendable {
     let version: String
     let releaseURL: URL
     /// Direct ZIP download URL from the GitHub release assets, if present.

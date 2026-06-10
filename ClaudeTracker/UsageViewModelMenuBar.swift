@@ -23,6 +23,10 @@ extension UsageViewModel {
     }
 
     var menuBarImage: NSImage {
+        // Observed read: invalidateMenuBarImage() bumps this to force a label redraw
+        // (the caches themselves are @ObservationIgnored — a view body must not write
+        // observed state).
+        _ = menuBarImageVersion
         let icon = statusIcon
         let text = statusText
         let color = statusColor

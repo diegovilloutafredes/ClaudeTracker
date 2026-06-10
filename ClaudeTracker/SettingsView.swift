@@ -154,12 +154,7 @@ struct SettingsView: View {
                     Text(account.label)
                         .font(.subheadline)
                     if let sub = account.subscriptionLabel {
-                        Text(sub)
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.purple.opacity(0.15), in: Capsule())
-                            .foregroundStyle(Color.purple)
+                        SubscriptionBadge(label: sub)
                     }
                 }
                 if let email = account.email {
@@ -191,6 +186,7 @@ struct SettingsView: View {
             }
             .buttonStyle(.borderless)
             .help(Text("Rename account"))
+            .accessibilityLabel(Text("Rename account"))
             Button {
                 pendingRemoval = account
             } label: {
@@ -199,6 +195,7 @@ struct SettingsView: View {
             }
             .buttonStyle(.borderless)
             .help(Text("Sign out & remove"))
+            .accessibilityLabel(Text("Sign out & remove account"))
         }
     }
 
@@ -328,23 +325,8 @@ struct SettingsView: View {
                 .toggleStyle(GreenSwitchStyle())
 
             if viewModel.notifyToast {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text("Duration")
-                            .font(.callout)
-                            .foregroundStyle(viewModel.toastPermanent ? .tertiary : .secondary)
-                        Slider(value: $viewModel.toastDuration, in: 1...30, step: 1)
-                            .disabled(viewModel.toastPermanent)
-                        Text(viewModel.toastPermanent ? "∞" : "\(Int(viewModel.toastDuration))s")
-                            .font(.callout.monospacedDigit())
-                            .foregroundStyle(viewModel.toastPermanent ? .tertiary : .secondary)
-                            .frame(width: 28, alignment: .trailing)
-                    }
-                    Toggle("Stay until dismissed", isOn: $viewModel.toastPermanent)
-                        .font(.callout)
-                        .toggleStyle(GreenSwitchStyle())
-                }
-                .padding(.leading, 20)
+                ToastDurationControls(duration: $viewModel.toastDuration,
+                                      permanent: $viewModel.toastPermanent)
             }
 
             Toggle("Sound (Hero)", isOn: $viewModel.resetSoundEnabled)
@@ -387,23 +369,8 @@ struct SettingsView: View {
                     .toggleStyle(GreenSwitchStyle())
 
                 if viewModel.paceToastEnabled {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 8) {
-                            Text("Duration")
-                                .font(.callout)
-                                .foregroundStyle(viewModel.paceToastPermanent ? .tertiary : .secondary)
-                            Slider(value: $viewModel.paceToastDuration, in: 1...30, step: 1)
-                                .disabled(viewModel.paceToastPermanent)
-                            Text(viewModel.paceToastPermanent ? "∞" : "\(Int(viewModel.paceToastDuration))s")
-                                .font(.callout.monospacedDigit())
-                                .foregroundStyle(viewModel.paceToastPermanent ? .tertiary : .secondary)
-                                .frame(width: 28, alignment: .trailing)
-                        }
-                        Toggle("Stay until dismissed", isOn: $viewModel.paceToastPermanent)
-                            .font(.callout)
-                            .toggleStyle(GreenSwitchStyle())
-                    }
-                    .padding(.leading, 20)
+                    ToastDurationControls(duration: $viewModel.paceToastDuration,
+                                          permanent: $viewModel.paceToastPermanent)
                 }
 
                 Toggle("Sound (Basso)", isOn: $viewModel.paceSoundEnabled)
@@ -434,25 +401,65 @@ struct SettingsView: View {
 /// Custom toggle style that renders an always-green switch regardless of the system
 /// accent color or SwiftUI environment tint. Uses a drawn capsule+circle so no
 /// native NSSwitch environment plumbing is involved — immune to Form cell isolation.
+///
+/// The drawn control is wrapped in a plain `Button` (not a tap gesture) so it gets
+/// keyboard focus and Space activation, and `accessibilityRepresentation` exposes
+/// real toggle semantics (state + label) to VoiceOver.
 private struct GreenSwitchStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
-        HStack {
-            configuration.label
-            Spacer()
-            ZStack {
-                Capsule()
-                    .fill(configuration.isOn ? Color.green : Color.secondary.opacity(0.35))
-                    .frame(width: 38, height: 22)
-                Circle()
-                    .fill(Color.white)
-                    .shadow(color: .black.opacity(0.22), radius: 1.5, x: 0, y: 1)
-                    .frame(width: 18, height: 18)
-                    .offset(x: configuration.isOn ? 8 : -8)
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            HStack {
+                configuration.label
+                Spacer()
+                ZStack {
+                    Capsule()
+                        .fill(configuration.isOn ? Color.green : Color.secondary.opacity(0.35))
+                        .frame(width: 38, height: 22)
+                    Circle()
+                        .fill(Color.white)
+                        .shadow(color: .black.opacity(0.22), radius: 1.5, x: 0, y: 1)
+                        .frame(width: 18, height: 18)
+                        .offset(x: configuration.isOn ? 8 : -8)
+                }
+                .animation(.easeInOut(duration: 0.15), value: configuration.isOn)
             }
-            .animation(.easeInOut(duration: 0.15), value: configuration.isOn)
+            .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
-        .onTapGesture { configuration.isOn.toggle() }
+        .buttonStyle(.plain)
+        .accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) { configuration.label }
+        }
+    }
+}
+
+// MARK: - Toast Duration Controls
+
+/// Duration slider + "stay until dismissed" toggle, shared by the reset-toast and
+/// pace-toast settings blocks.
+private struct ToastDurationControls: View {
+    @Binding var duration: Double
+    @Binding var permanent: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("Duration")
+                    .font(.callout)
+                    .foregroundStyle(permanent ? .tertiary : .secondary)
+                Slider(value: $duration, in: 1...30, step: 1)
+                    .disabled(permanent)
+                Text(permanent ? "∞" : "\(Int(duration))s")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(permanent ? .tertiary : .secondary)
+                    .frame(width: 28, alignment: .trailing)
+            }
+            Toggle("Stay until dismissed", isOn: $permanent)
+                .font(.callout)
+                .toggleStyle(GreenSwitchStyle())
+        }
+        .padding(.leading, 20)
     }
 }
 
@@ -474,7 +481,11 @@ private struct SettingsWindowPositioner: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async {
+        let coordinator = context.coordinator
+        let targetWidth = targetWidth
+        let isAuthenticated = isAuthenticated
+        // Deferred one main-actor turn so `view.window` is populated.
+        Task<Void, Never> { @MainActor in
             guard let window = view.window, let screen = NSScreen.main else { return }
             let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
             window.title = String(format: String(localized: "Settings · v%@"), version)
@@ -486,13 +497,16 @@ private struct SettingsWindowPositioner: NSViewRepresentable {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
 
-            if context.coordinator.closeObserver == nil {
-                context.coordinator.closeObserver = NotificationCenter.default.addObserver(
+            if coordinator.closeObserver == nil {
+                coordinator.closeObserver = NotificationCenter.default.addObserver(
                     forName: NSWindow.willCloseNotification,
                     object: window,
                     queue: .main
                 ) { _ in
-                    NSApp.setActivationPolicy(.accessory)
+                    // Delivered on `.main`; assumeIsolated satisfies strict concurrency.
+                    MainActor.assumeIsolated {
+                        _ = NSApp.setActivationPolicy(.accessory)
+                    }
                 }
             }
         }
@@ -500,7 +514,9 @@ private struct SettingsWindowPositioner: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
+        let targetWidth = targetWidth
+        let isAuthenticated = isAuthenticated
+        Task<Void, Never> { @MainActor in
             guard let window = nsView.window, let screen = NSScreen.main else { return }
             Self.reframe(window: window, screen: screen, targetWidth: targetWidth, isAuthenticated: isAuthenticated)
         }

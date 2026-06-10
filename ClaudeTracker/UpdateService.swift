@@ -1,6 +1,84 @@
 import Foundation
 import AppKit
-import Combine
+
+/// Parses the GitHub `releases?per_page=N` JSON payload.
+///
+/// Returns the newest release as an `UpdateInfo` when it is strictly newer than
+/// `currentVersion` (nil otherwise), plus all `published_at` dates for the adaptive
+/// check-interval computation. Malformed payloads (e.g. a rate-limit error dict
+/// instead of an array) yield `(nil, [])`.
+func parseGitHubReleases(_ data: Data, currentVersion: String) -> (update: UpdateInfo?, releaseDates: [Date]) {
+    guard let releases = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else {
+        return (nil, [])
+    }
+
+    let fmt = ISO8601DateFormatter()
+    let dates = releases.compactMap { r -> Date? in
+        guard let s = r["published_at"] as? String else { return nil }
+        return fmt.date(from: s)
+    }
+
+    guard let latest = releases.first,
+          let tag = latest["tag_name"] as? String,
+          let htmlUrl = latest["html_url"] as? String,
+          let releaseUrl = URL(string: htmlUrl) else { return (nil, dates) }
+
+    let remote = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+    guard isNewerVersion(remote, than: currentVersion) else { return (nil, dates) }
+
+    let assets = latest["assets"] as? [[String: Any]]
+    let zipAsset = assets?.first { ($0["name"] as? String)?.hasSuffix(".zip") == true }
+    let downloadURL = (zipAsset?["browser_download_url"] as? String).flatMap(URL.init)
+    return (UpdateInfo(version: remote, releaseURL: releaseUrl, downloadURL: downloadURL), dates)
+}
+
+/// Atomically replaces the item at `dest` with a copy of `source`.
+///
+/// Stages the copy as a sibling of `dest` (same volume), moves the old item aside,
+/// swaps the staged copy in, and only then deletes the old item — so a failure at any
+/// step leaves either the original or the new item at `dest`, never nothing.
+func atomicReplaceItem(at dest: URL, with source: URL) throws {
+    let fm = FileManager.default
+    let parent = dest.deletingLastPathComponent()
+    let staging = parent.appendingPathComponent(".\(dest.lastPathComponent).staging-\(UUID().uuidString)")
+    let backup = parent.appendingPathComponent(".\(dest.lastPathComponent).old-\(UUID().uuidString)")
+
+    // 1. Copy onto the destination volume first — the only slow/likely-to-fail step,
+    //    and it happens while the original is still intact.
+    try fm.copyItem(at: source, to: staging)
+
+    // 2. Move the original aside (fast same-volume rename). Skipped when dest doesn't exist.
+    let hadExisting = fm.fileExists(atPath: dest.path)
+    if hadExisting {
+        do {
+            try fm.moveItem(at: dest, to: backup)
+        } catch {
+            try? fm.removeItem(at: staging)
+            throw error
+        }
+    }
+
+    // 3. Swap the staged copy in; roll the original back if the rename fails.
+    do {
+        try fm.moveItem(at: staging, to: dest)
+    } catch {
+        if hadExisting { try? fm.moveItem(at: backup, to: dest) }
+        try? fm.removeItem(at: staging)
+        throw error
+    }
+
+    // 4. Only now is the old copy disposable.
+    if hadExisting { try? fm.removeItem(at: backup) }
+}
+
+/// Reads `CFBundleShortVersionString` from an app bundle's Info.plist without loading it.
+func bundleShortVersion(at appURL: URL) -> String? {
+    let plistURL = appURL.appendingPathComponent("Contents/Info.plist")
+    guard let data = try? Data(contentsOf: plistURL),
+          let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+    else { return nil }
+    return plist["CFBundleShortVersionString"] as? String
+}
 
 /// Progress state for the in-app update download/install flow.
 enum UpdateDownloadState {
@@ -25,31 +103,34 @@ final class UpdateService {
     var autoUpdate: Bool = false {
         didSet {
             guard autoUpdate != oldValue else { return }
-            UserDefaults.standard.set(autoUpdate, forKey: "autoUpdate")
+            UserDefaults.standard.set(autoUpdate, forKey: PrefKey.autoUpdate)
             schedulePeriodicUpdateCheck()
         }
     }
 
-    @ObservationIgnored private var updateCheckTimer: AnyCancellable?
+    @ObservationIgnored private var updateCheckTask: Task<Void, Never>?
     @ObservationIgnored private var lastNotifiedUpdateVersion: String = ""
     /// Adaptive check interval (seconds), computed from release cadence. Clamped 4h–24h.
     private var nextCheckInterval: TimeInterval = 12 * 3600
 
     var updateCheckIntervalLabel: String {
         let h = (nextCheckInterval / 3600).rounded()
-        if h < 24 { return "Checks every ~\(Int(h))h — on launch and wake" }
-        return "Checks every ~\(max(1, Int((h / 24).rounded())))d — on launch and wake"
+        if h < 24 {
+            return String(format: String(localized: "Checks every ~%dh — on launch and wake"), Int(h))
+        }
+        return String(format: String(localized: "Checks every ~%dd — on launch and wake"),
+                      max(1, Int((h / 24).rounded())))
     }
 
     /// Loads persisted update preferences and kicks off the periodic timer plus a one-shot
     /// check 10 s after launch. Called from `UsageViewModel.start()`, not from `init`, so a
     /// bare `UsageViewModel()`/`UpdateService()` in a test does not hit the network.
     func start() {
-        lastNotifiedUpdateVersion = UserDefaults.standard.string(forKey: "lastNotifiedUpdateVersion") ?? ""
-        let savedCheckInterval = UserDefaults.standard.double(forKey: "updateCheckInterval")
+        lastNotifiedUpdateVersion = UserDefaults.standard.string(forKey: PrefKey.lastNotifiedUpdateVersion) ?? ""
+        let savedCheckInterval = UserDefaults.standard.double(forKey: PrefKey.updateCheckInterval)
         if savedCheckInterval >= 4 * 3600 { nextCheckInterval = savedCheckInterval }
         // Set autoUpdate last so its didSet fires with nextCheckInterval already correct.
-        autoUpdate = UserDefaults.standard.object(forKey: "autoUpdate") as? Bool ?? false
+        autoUpdate = UserDefaults.standard.object(forKey: PrefKey.autoUpdate) as? Bool ?? false
         schedulePeriodicUpdateCheck()
         Task { try? await Task.sleep(for: .seconds(10)); checkForUpdates() }
     }
@@ -67,31 +148,35 @@ final class UpdateService {
             var req = URLRequest(url: url)
             req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             req.timeoutInterval = 10
-            guard let (data, _) = try? await URLSession.shared.data(for: req),
-                  let releases = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-                  let latest = releases.first,
-                  let tag = latest["tag_name"] as? String,
-                  let htmlUrl = latest["html_url"] as? String,
-                  let releaseUrl = URL(string: htmlUrl) else { return }
+            let data: Data
+            do {
+                let (d, response) = try await URLSession.shared.data(for: req)
+                if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                    AppLogger.shared.error("update check failed: HTTP \(http.statusCode)")
+                    return
+                }
+                data = d
+            } catch {
+                AppLogger.shared.error("update check failed: \(error.localizedDescription)")
+                return
+            }
 
-            let remote  = tag.trimmingCharacters(in: .init(charactersIn: "v"))
             let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
-            if isNewerVersion(remote, than: current) {
-                let assets = latest["assets"] as? [[String: Any]]
-                let zipAsset = assets?.first { ($0["name"] as? String)?.hasSuffix(".zip") == true }
-                let downloadURL = (zipAsset?["browser_download_url"] as? String).flatMap(URL.init)
-                availableUpdate = UpdateInfo(version: remote, releaseURL: releaseUrl, downloadURL: downloadURL)
+            let (update, dates) = parseGitHubReleases(data, currentVersion: current)
+
+            if let update {
+                availableUpdate = update
 
                 // Only notify once per discovered version (persisted across restarts)
-                if lastNotifiedUpdateVersion != remote {
-                    lastNotifiedUpdateVersion = remote
-                    UserDefaults.standard.set(remote, forKey: "lastNotifiedUpdateVersion")
-                    if autoUpdate, downloadURL != nil {
+                if lastNotifiedUpdateVersion != update.version {
+                    lastNotifiedUpdateVersion = update.version
+                    UserDefaults.standard.set(update.version, forKey: PrefKey.lastNotifiedUpdateVersion)
+                    if autoUpdate, update.downloadURL != nil {
                         if case .idle = updateDownloadState { triggerAutoInstall() }
                     } else {
                         ToastWindowController.shared.show(
                             title: String(localized: "Update available"),
-                            message: String(format: String(localized: "v%@ is ready — open Settings to install"), remote),
+                            message: String(format: String(localized: "v%@ is ready — open Settings to install"), update.version),
                             icon: "arrow.up.circle.fill",
                             iconColor: .green,
                             duration: 12,
@@ -101,29 +186,31 @@ final class UpdateService {
                 }
             }
 
-            // Parse release dates and derive the next adaptive check interval.
-            let fmt = ISO8601DateFormatter()
-            let dates = releases.compactMap { r -> Date? in
-                guard let s = r["published_at"] as? String else { return nil }
-                return fmt.date(from: s)
-            }
+            // Derive the next adaptive check interval from the release cadence.
             let computed = adaptiveCheckInterval(from: dates)
             if computed != nextCheckInterval {
                 nextCheckInterval = computed
-                UserDefaults.standard.set(computed, forKey: "updateCheckInterval")
+                UserDefaults.standard.set(computed, forKey: PrefKey.updateCheckInterval)
                 AppLogger.shared.info("update check interval adjusted to \(Int(computed / 3600))h based on release cadence")
                 if autoUpdate { schedulePeriodicUpdateCheck() }
             }
         }
     }
 
+    /// MainActor sleep loop (rather than a Combine timer) so the periodic check never
+    /// runs in a nonisolated closure — Swift 6 strict-concurrency clean.
     private func schedulePeriodicUpdateCheck() {
-        updateCheckTimer?.cancel()
-        updateCheckTimer = nil
+        updateCheckTask?.cancel()
+        updateCheckTask = nil
         guard autoUpdate else { return }
-        updateCheckTimer = Timer.publish(every: nextCheckInterval, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in self?.checkForUpdates() }
+        let interval = nextCheckInterval
+        updateCheckTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(interval))
+                guard !Task.isCancelled else { return }
+                self?.checkForUpdates()
+            }
+        }
     }
 
     private func triggerAutoInstall() {
@@ -190,18 +277,30 @@ final class UpdateService {
 
                 updateDownloadState = .installing
 
-                // Try direct install (works when sandbox is not enforced)
-                let dest = URL(fileURLWithPath: "/Applications/ClaudeTracker.app")
-                let directOK: Bool = await withCheckedContinuation { cont in
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        try? FileManager.default.removeItem(at: dest)
-                        cont.resume(returning: (try? FileManager.default.copyItem(at: appURL, to: dest)) != nil)
-                    }
+                // Verify the extracted bundle is actually the promised newer version before
+                // touching /Applications — the download URL was discovered up to 24 h earlier
+                // and the release asset could have changed since.
+                let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+                guard let extractedVersion = bundleShortVersion(at: appURL),
+                      isNewerVersion(extractedVersion, than: current) else {
+                    throw UpdateError.versionMismatch
                 }
 
-                // Fail gracefully if copy was blocked (e.g. sandbox in signed dev builds).
-                // Never open install.command or terminate without a successful install.
-                guard directOK else { throw UpdateError.installationFailed }
+                // Atomic stage-and-swap: a failure at any step leaves either the old or the
+                // new bundle at the destination — never an empty /Applications slot. The old
+                // bundle path is fully replaced (new inode), so Launch Services can't serve
+                // a stale cached binary.
+                let dest = URL(fileURLWithPath: "/Applications/ClaudeTracker.app")
+                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        do {
+                            try atomicReplaceItem(at: dest, with: appURL)
+                            cont.resume()
+                        } catch {
+                            cont.resume(throwing: error)
+                        }
+                    }
+                }
 
                 // Relaunch: try a detached shell script first (works in unsigned release builds).
                 // Fall back to NSWorkspace.open when Process is sandbox-blocked.
@@ -228,12 +327,13 @@ final class UpdateService {
     }
 
     private enum UpdateError: LocalizedError {
-        case extractionFailed, appNotFound, installationFailed
+        case extractionFailed, appNotFound, installationFailed, versionMismatch
         var errorDescription: String? {
             switch self {
             case .extractionFailed:   return String(localized: "Failed to extract update")
             case .appNotFound:        return String(localized: "Update package is invalid")
             case .installationFailed: return String(localized: "Installation failed")
+            case .versionMismatch:    return String(localized: "Update package version mismatch")
             }
         }
     }

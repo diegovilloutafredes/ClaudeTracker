@@ -1,6 +1,13 @@
 import Foundation
 import WebKit
 
+extension HTTPCookie {
+    /// True for cookies set by the claude.ai / anthropic.com session domains.
+    var isClaudeDomain: Bool {
+        domain.contains("claude.ai") || domain.contains("anthropic.com")
+    }
+}
+
 /// Fetches usage and account data from the unofficial claude.ai web API.
 ///
 /// Direct `URLSession` requests to claude.ai are blocked by Cloudflare's bot-detection layer.
@@ -15,11 +22,15 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     let dataStoreIdentifier: UUID
 
     private var isPageReady = false
-    private var readyWaiters: [CheckedContinuation<Void, Error>] = []
+    private var readyWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
     private var isLoadingPage = false
+    /// Fails all pending waiters if the page never becomes ready (e.g. a Cloudflare
+    /// challenge that never clears). Without this, a stuck page would suspend every
+    /// caller forever and silently stop the polling loop.
+    private var readinessTimeoutTask: Task<Void, Never>?
     private var cachedOrgId: String?
     private(set) var cachedOrgName: String?
-    private var cookieTimer: Timer?
+    private var cookieTask: Task<Void, Never>?
     private var popupWebView: WKWebView?
     var onPopupRequested: ((WKWebView, WKWindowFeatures) -> Void)?
     var onPopupDismissed: (() -> Void)?
@@ -41,8 +52,7 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// `WKWebsiteDataStore.remove(forIdentifier:)`).
     func tearDown() {
         stopCookiePolling()
-        readyWaiters.forEach { $0.resume(throwing: APIError.networkError("torn down")) }
-        readyWaiters = []
+        failAllWaiters(with: APIError.networkError("torn down"))
         popupWebView = nil
         webView.stopLoading()
         webView.navigationDelegate = nil
@@ -59,37 +69,41 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     /// Polls the shared cookie store every second until a `sessionKey` cookie appears.
     ///
-    /// Cookie inspection requires an asynchronous callback into the cookie store; a timer
-    /// is more reliable here than a navigation-delegate approach because sign-in involves
-    /// multiple redirects before the final authenticated page sets the session cookie.
+    /// Cookie inspection requires an asynchronous round-trip into the cookie store; a
+    /// poll loop is more reliable here than a navigation-delegate approach because
+    /// sign-in involves multiple redirects before the final authenticated page sets the
+    /// session cookie. A MainActor task loop (rather than a `Timer`) keeps the whole
+    /// poll on the main actor — no nonisolated timer closure touching actor state.
     ///
     /// - Parameter onFound: Called on the main thread with the session key value.
     func startCookiePolling(onFound: @escaping (String) -> Void) {
-        cookieTimer?.invalidate()
-        cookieTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
-                let claudeCookies = cookies.filter { $0.domain.contains("claude.ai") || $0.domain.contains("anthropic.com") }
+        cookieTask?.cancel()
+        cookieTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let cookies = await self.webView.configuration.websiteDataStore.httpCookieStore.allCookies()
+                let claudeCookies = cookies.filter(\.isClaudeDomain)
                 #if DEBUG
                 if !claudeCookies.isEmpty {
                     let names = claudeCookies.map(\.name).joined(separator: ", ")
                     print("[ClaudeTracker] Cookies visible during login poll: \(names)")
                 }
                 #endif
-                if let session = cookies.first(where: { $0.name == "sessionKey" && ($0.domain.contains("claude.ai") || $0.domain.contains("anthropic.com")) }) {
-                    DispatchQueue.main.async {
-                        self?.cookieTimer?.invalidate()
-                        self?.cookieTimer = nil
-                        onFound(session.value)
-                    }
+                if let session = claudeCookies.first(where: { $0.name == "sessionKey" }) {
+                    guard !Task.isCancelled else { return }
+                    self.cookieTask = nil
+                    onFound(session.value)
+                    return
                 }
+                try? await Task.sleep(for: .seconds(1))
             }
         }
     }
 
     /// Stops an in-progress cookie poll without invoking the callback.
     func stopCookiePolling() {
-        cookieTimer?.invalidate()
-        cookieTimer = nil
+        cookieTask?.cancel()
+        cookieTask = nil
     }
 
     // MARK: - Page Readiness
@@ -100,25 +114,61 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// All concurrent callers share a single page load — each call appends a continuation
     /// that is resumed together once the page is ready, preventing duplicate navigation requests.
     ///
-    /// - Throws: `APIError.networkError` if the page fails to load.
+    /// - Throws: `APIError.networkError` if the page fails to load or never becomes ready
+    ///   within 30 s; `CancellationError` if the calling task is cancelled while waiting.
     func ensureReady() async throws {
         if isPageReady { return }
-        try await withCheckedThrowingContinuation { continuation in
-            readyWaiters.append(continuation)
-            guard !isLoadingPage else { return }
-            isLoadingPage = true
-            if let host = webView.url?.host, host.contains("claude.ai"),
-               webView.url?.path != "/login" {
-                checkPageReady()
-            } else {
-                webView.load(URLRequest(url: URL(string: "https://claude.ai")!))
+        let waiterID = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                readyWaiters[waiterID] = continuation
+                armReadinessTimeout()
+                guard !isLoadingPage else { return }
+                isLoadingPage = true
+                if let host = webView.url?.host, host.contains("claude.ai"),
+                   webView.url?.path != "/login" {
+                    checkPageReady()
+                } else {
+                    webView.load(URLRequest(url: URL(string: "https://claude.ai")!))
+                }
             }
+        } onCancel: {
+            // A cancelled fetch must not leave its continuation suspended in
+            // `readyWaiters` — that would leak the task and, before the timeout existed,
+            // suspend it forever.
+            Task { @MainActor [weak self] in self?.cancelWaiter(waiterID) }
+        }
+    }
+
+    private func cancelWaiter(_ id: UUID) {
+        readyWaiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
+    }
+
+    /// One shared timeout per load attempt; armed when the first waiter queues up,
+    /// cleared when the waiters drain (ready, failure, or teardown).
+    private func armReadinessTimeout() {
+        guard readinessTimeoutTask == nil else { return }
+        readinessTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled, let self else { return }
+            self.readinessTimeoutTask = nil
+            guard !self.readyWaiters.isEmpty else { return }
+            AppLogger.shared.error("page readiness timed out — failing \(self.readyWaiters.count) waiter(s)")
+            self.failAllWaiters(with: APIError.networkError(String(localized: "Page load timed out")))
         }
     }
 
     private func checkPageReady() {
-        webView.evaluateJavaScript("document.title") { [weak self] result, _ in
+        webView.evaluateJavaScript("document.title") { [weak self] result, error in
             guard let self else { return }
+            if let error {
+                // The page is unusable (e.g. the web content process died). Fail fast so
+                // the next poll reloads — marking a dead page "ready" would turn every
+                // subsequent fetch into an opaque network error.
+                self.isPageReady = false
+                self.failAllWaiters(with: APIError.networkError(error.localizedDescription))
+                return
+            }
             let title = (result as? String) ?? ""
             if title.lowercased().contains("just a moment") {
                 // Still on the Cloudflare challenge page — wait for the next didFinish event.
@@ -131,16 +181,20 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     private func resumeAllWaiters() {
+        readinessTimeoutTask?.cancel()
+        readinessTimeoutTask = nil
         let waiters = readyWaiters
-        readyWaiters = []
-        waiters.forEach { $0.resume() }
+        readyWaiters = [:]
+        waiters.values.forEach { $0.resume() }
     }
 
     private func failAllWaiters(with error: Error) {
+        readinessTimeoutTask?.cancel()
+        readinessTimeoutTask = nil
         let waiters = readyWaiters
-        readyWaiters = []
+        readyWaiters = [:]
         isLoadingPage = false
-        waiters.forEach { $0.resume(throwing: error) }
+        waiters.values.forEach { $0.resume(throwing: error) }
     }
 
     // MARK: - API Calls via WebView fetch()
@@ -196,7 +250,13 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
         guard let str = result as? String, let data = str.data(using: .utf8) else {
             throw APIError.invalidResponse
         }
-        return try JSONDecoder().decode(UsageResponse.self, from: data)
+        do {
+            return try JSONDecoder().decode(UsageResponse.self, from: data)
+        } catch {
+            // Log the payload head so an API format change is diagnosable from the log file.
+            AppLogger.shared.error("usage decode failed: \(error) — payload: \(str.prefix(500))")
+            throw error
+        }
     }
 
     // MARK: - Private
@@ -292,6 +352,16 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
         // NSURLErrorCancelled fires on every redirect — safe to ignore.
         if (error as NSError).code == NSURLErrorCancelled { return }
         failAllWaiters(with: APIError.networkError(error.localizedDescription))
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        // Without this, a killed WebKit process leaves `isPageReady` stale and polling
+        // degrades into a permanent error loop until a 401 happens to clear it.
+        AppLogger.shared.error("web content process terminated — reloading claude.ai")
+        isPageReady = false
+        isLoadingPage = false
+        failAllWaiters(with: APIError.networkError(String(localized: "Browser engine restarted")))
+        webView.reload()
     }
 
     // MARK: - Errors

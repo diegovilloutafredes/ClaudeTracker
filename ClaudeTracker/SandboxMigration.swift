@@ -22,30 +22,43 @@ enum SandboxMigration {
     private static let doneKey = "sandboxMigrationCompleted"
     private static let bundleID = "com.claudetracker.app"
 
-    /// Runs at most once. Subsequent launches no-op via the `doneKey` marker.
-    /// Must run before any code reads UserDefaults or instantiates a
-    /// `WKWebsiteDataStore` — call from app init.
+    /// Runs until it succeeds once. The `doneKey` marker is only written when both
+    /// steps either succeeded or verifiably had nothing to migrate — a transient
+    /// failure on first launch (unreadable plist, copy error) gets retried on the
+    /// next launch instead of permanently losing the user's sessions and settings.
+    /// Both steps are idempotent (they never overwrite existing destination data),
+    /// so a partial re-run can't clobber state. Must run before any code reads
+    /// UserDefaults or instantiates a `WKWebsiteDataStore` — call from app init.
     static func runIfNeeded() {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: doneKey) else { return }
-        defer { defaults.set(true, forKey: doneKey) }
 
-        migrateUserDefaults(into: defaults)
-        migrateWebKitDataStores()
+        let defaultsOK = migrateUserDefaults(into: defaults)
+        let webKitOK = migrateWebKitDataStores()
+        if defaultsOK && webKitOK {
+            defaults.set(true, forKey: doneKey)
+        } else {
+            AppLogger.shared.error("Sandbox migration incomplete — will retry next launch")
+        }
     }
 
-    private static func migrateUserDefaults(into defaults: UserDefaults) {
+    /// Returns `true` on success or when there is nothing to migrate; `false` on a
+    /// transient read failure that warrants a retry next launch.
+    private static func migrateUserDefaults(into defaults: UserDefaults) -> Bool {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let containerPlist = home.appendingPathComponent(
             "Library/Containers/\(bundleID)/Data/Library/Preferences/\(bundleID).plist"
         )
 
-        guard FileManager.default.fileExists(atPath: containerPlist.path),
-              let data = try? Data(contentsOf: containerPlist),
+        guard FileManager.default.fileExists(atPath: containerPlist.path) else { return true }
+        guard let data = try? Data(contentsOf: containerPlist),
               let plist = try? PropertyListSerialization.propertyList(
                   from: data, options: [], format: nil
               ) as? [String: Any]
-        else { return }
+        else {
+            AppLogger.shared.error("Sandbox migration: container plist exists but could not be read")
+            return false
+        }
 
         var imported = 0
         for (key, value) in plist {
@@ -56,9 +69,12 @@ enum SandboxMigration {
             imported += 1
         }
         AppLogger.shared.info("Sandbox migration: imported \(imported) UserDefaults keys from container")
+        return true
     }
 
-    private static func migrateWebKitDataStores() {
+    /// Returns `true` on success or when there is nothing to migrate; `false` when any
+    /// copy failed (retried next launch — already-copied stores are skipped, not overwritten).
+    private static func migrateWebKitDataStores() -> Bool {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
         let containerStores = home.appendingPathComponent(
@@ -68,9 +84,11 @@ enum SandboxMigration {
             "Library/WebKit/\(bundleID)/WebsiteDataStore"
         )
 
+        guard fm.fileExists(atPath: containerStores.path) else { return true }
         guard let entries = try? fm.contentsOfDirectory(at: containerStores,
                                                        includingPropertiesForKeys: nil) else {
-            return
+            AppLogger.shared.error("Sandbox migration: container WebKit dir exists but could not be listed")
+            return false
         }
 
         // Make sure the destination parent exists. Subdirectories are copied
@@ -79,22 +97,22 @@ enum SandboxMigration {
         try? fm.createDirectory(at: targetStores, withIntermediateDirectories: true)
 
         var copied = 0
+        var allOK = true
         for src in entries {
             let dst = targetStores.appendingPathComponent(src.lastPathComponent)
-            // The migration runs exactly once (gated by `doneKey`), so if a
-            // destination already exists it's stale — from a prior non-sandboxed
-            // run before the app was ever sandboxed. The container is the
-            // canonical source of truth, so always overwrite.
-            if fm.fileExists(atPath: dst.path) {
-                try? fm.removeItem(at: dst)
-            }
+            // Never overwrite an existing destination: on a retry after a partial
+            // failure, the already-migrated (and possibly since-updated) store is
+            // newer than the container copy.
+            if fm.fileExists(atPath: dst.path) { continue }
             do {
                 try fm.copyItem(at: src, to: dst)
                 copied += 1
             } catch {
+                allOK = false
                 AppLogger.shared.error("WebKit migration copy failed for \(src.lastPathComponent): \(error)")
             }
         }
         AppLogger.shared.info("Sandbox migration: copied \(copied) WebKit data stores from container")
+        return allOK
     }
 }
