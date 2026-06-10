@@ -28,6 +28,10 @@ settings:
     GCC_NO_COMMON_BLOCKS: YES
     SDKROOT: macosx
     SWIFT_VERSION: "5.0"
+    # The codebase is strict-concurrency clean (verified on Xcode 26.5). Enforcing
+    # `complete` here keeps it that way and replaces the old per-invocation
+    # SWIFT_STRICT_CONCURRENCY=minimal workaround flags in the Makefile and CI.
+    SWIFT_STRICT_CONCURRENCY: complete
   configs:
     Debug:
       DEBUG_INFORMATION_FORMAT: dwarf
@@ -90,7 +94,6 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.claudetracker.app.tests
         PRODUCT_NAME: "$(TARGET_NAME)"
-        SWIFT_STRICT_CONCURRENCY: minimal
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/ClaudeTracker.app/Contents/MacOS/ClaudeTracker"
 
 # Both schemes are declared so the existing Makefile invocations keep working

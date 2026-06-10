@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  # Keep in sync with release.yml
+  XCODE_PATH: /Applications/Xcode_26.5.app
+
 jobs:
   build:
     runs-on: macos-26
@@ -14,7 +18,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+        run: sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
 
       # ClaudeTracker.xcodeproj is generated from project.yml (XcodeGen) and not committed.
       - name: Install XcodeGen
@@ -23,12 +27,20 @@ jobs:
       - name: Generate Xcode project
         run: make generate
 
-      - name: Build
+      # Catches violations on PRs instead of at release time, where a strict lint
+      # failure would kill the release pipeline mid-run.
+      - name: Lint
+        run: make lint
+
+      # Release configuration on purpose: it uses wholemodule optimization, which can
+      # surface errors (notably concurrency diagnostics on new Xcode versions) that a
+      # Debug build misses — and Release is what `make tag` ships.
+      - name: Build (Release)
         run: |
           xcodebuild \
             -project ClaudeTracker.xcodeproj \
             -scheme ClaudeTracker \
-            -configuration Debug \
+            -configuration Release \
             -destination 'platform=macOS' \
             CODE_SIGNING_ALLOWED=NO \
             build
@@ -39,5 +51,4 @@ jobs:
             -project ClaudeTracker.xcodeproj \
             -scheme ClaudeTrackerTests \
             -destination 'platform=macOS' \
-            SWIFT_STRICT_CONCURRENCY=minimal \
-            CODE_SIGN_IDENTITY="-"
+            CODE_SIGNING_ALLOWED=NO

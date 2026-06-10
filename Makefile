@@ -48,7 +48,6 @@ test: generate
 	           -project $(PROJECT) \
 	           -scheme ClaudeTrackerTests \
 	           -destination 'platform=macOS' \
-	           SWIFT_STRICT_CONCURRENCY=minimal \
 	           $(SIGNING_FLAGS)
 
 # ── Generate Xcode project (XcodeGen) ─────────────────────────────────────────
@@ -74,7 +73,6 @@ build: generate
 	           -quiet \
 	           clean build \
 	           CONFIGURATION_BUILD_DIR="$(CURDIR)/$(BUILD_DIR)" \
-	           SWIFT_STRICT_CONCURRENCY=minimal \
 	           $(SIGNING_FLAGS)
 
 # ── Code signing ─────────────────────────────────────────────────────────────
@@ -150,7 +148,7 @@ run: build
 
 # ── Release tagging ──────────────────────────────────────────────────────────
 
-tag: lint
+tag: lint test
 	@if [ -z "$(VERSION)" ]; then echo "Usage: make tag VERSION=1.0.0"; exit 1; fi
 	@if [ -n "$$(git status --porcelain)" ]; then echo "Working directory is not clean — commit changes first"; exit 1; fi
 	@sed -i '' 's/MARKETING_VERSION: .*/MARKETING_VERSION: "$(VERSION)"/' project.yml

@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
 
+env:
+  # Keep in sync with build.yml
+  XCODE_PATH: /Applications/Xcode_26.5.app
+
 jobs:
   release:
     runs-on: macos-26
@@ -15,7 +19,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+        run: sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
 
       # ── Generate Xcode project ──────────────────────────────────────────────
       # ClaudeTracker.xcodeproj is not committed; project.yml is the source of
@@ -57,9 +61,14 @@ jobs:
           security list-keychains -d user -s $KEYCHAIN
           rm $RUNNER_TEMP/cert.p12
 
-      # ── Lint ────────────────────────────────────────────────────────────────
+      # ── Lint & test ─────────────────────────────────────────────────────────
       - name: Lint
         run: make lint
+
+      # The tag and the main-branch push race; run the tests here so a release can't
+      # ship a commit whose Build workflow later fails.
+      - name: Test
+        run: make test SIGNING_FLAGS="CODE_SIGNING_ALLOWED=NO"
 
       # ── Build ───────────────────────────────────────────────────────────────
       - name: Build (signed)
