@@ -128,6 +128,29 @@ enum PrefKey {
     static let legacyUsageHistory = "usageHistory"
 }
 
+// MARK: - Reset Time Display
+
+/// Formats the absolute wall-clock time of a window reset for display next to the countdown.
+///
+/// The hour cycle is pinned via `Locale.Components.hourCycle` so the user's 12/24-hour choice
+/// wins over the locale's preference while weekday names stay localized. An abbreviated
+/// weekday is prepended when the reset is not on the same calendar day as `now` — 7-day
+/// windows always reset within a week, so a full date is never needed.
+func resetTimeText(reset: Date, now: Date, use24Hour: Bool,
+                   calendar: Calendar = .current, locale: Locale = .current) -> String {
+    var components = Locale.Components(locale: locale)
+    components.hourCycle = use24Hour ? .zeroToTwentyThree : .oneToTwelve
+    let pinned = Locale(components: components)
+
+    var style = Date.FormatStyle(locale: pinned, calendar: calendar, timeZone: calendar.timeZone)
+        .hour(.defaultDigits(amPM: use24Hour ? .omitted : .abbreviated))
+        .minute()
+    if !calendar.isDate(reset, inSameDayAs: now) {
+        style = style.weekday(.abbreviated)
+    }
+    return reset.formatted(style)
+}
+
 // MARK: - Polling Tuning
 
 /// Computes the adaptive polling interval for a single usage window.

@@ -228,6 +228,57 @@ final class PureLogicTests: XCTestCase {
         // 36 %/hr = 0.01 %/s
         XCTAssertEqual(PaceRateUnit.perSecond.format(36), "0.0100%/s")
     }
+
+    // MARK: - resetTimeText
+
+    private func gmtCalendar() -> Calendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "GMT")!
+        return cal
+    }
+
+    /// ICU inserts a narrow no-break space before AM/PM on recent OSes; normalize for comparison.
+    private func normalizedTime(_ s: String) -> String {
+        s.replacingOccurrences(of: "\u{202F}", with: " ")
+         .replacingOccurrences(of: "\u{00A0}", with: " ")
+    }
+
+    private let enUS = Locale(identifier: "en_US")
+
+    func testResetTimeTextSameDay12Hour() {
+        let cal = gmtCalendar()
+        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 10, minute: 0))!
+        let reset = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 17, minute: 30))!
+        let text = resetTimeText(reset: reset, now: now, use24Hour: false, calendar: cal, locale: enUS)
+        XCTAssertEqual(normalizedTime(text), "5:30 PM")
+    }
+
+    func testResetTimeTextSameDay24Hour() {
+        let cal = gmtCalendar()
+        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 10, minute: 0))!
+        let reset = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 17, minute: 30))!
+        let text = resetTimeText(reset: reset, now: now, use24Hour: true, calendar: cal, locale: enUS)
+        XCTAssertEqual(normalizedTime(text), "17:30")
+    }
+
+    func testResetTimeTextNextDayAddsWeekday() {
+        let cal = gmtCalendar()
+        // 2026-07-01 is a Wednesday; reset lands Thursday 2026-07-02.
+        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 23, minute: 0))!
+        let reset = cal.date(from: DateComponents(year: 2026, month: 7, day: 2, hour: 17, minute: 30))!
+        let text = resetTimeText(reset: reset, now: now, use24Hour: false, calendar: cal, locale: enUS)
+        XCTAssertEqual(normalizedTime(text), "Thu 5:30 PM")
+    }
+
+    func testResetTimeTextSixDaysOutAddsWeekday24Hour() {
+        let cal = gmtCalendar()
+        // Reset lands Tuesday 2026-07-07.
+        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 10, minute: 0))!
+        let reset = cal.date(from: DateComponents(year: 2026, month: 7, day: 7, hour: 9, minute: 5))!
+        let text = resetTimeText(reset: reset, now: now, use24Hour: true, calendar: cal, locale: enUS)
+        // ICU zero-pads the hour in 24-hour mode ("09:05", digital-clock style).
+        XCTAssertEqual(normalizedTime(text), "Tue 09:05")
+    }
 }
 
 /// Fixture-based decoding tests against captured shapes of the unofficial claude.ai API.
