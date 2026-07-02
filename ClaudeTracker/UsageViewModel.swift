@@ -135,6 +135,10 @@ final class UsageViewModel {
     var showSonnetWindow: Bool = true {
         didSet { guard showSonnetWindow != oldValue else { return }; UserDefaults.standard.set(showSonnetWindow, forKey: PrefKey.showSonnetWindow) }
     }
+    /// Whether absolute reset times render as 24-hour (true) or AM/PM (false).
+    var use24HourTime: Bool = false {
+        didSet { guard use24HourTime != oldValue else { return }; UserDefaults.standard.set(use24HourTime, forKey: PrefKey.use24HourTime) }
+    }
 
     @ObservationIgnored private var isInitialized = false
     /// API service for the active account. nil before the first account is built or during migration.
@@ -251,6 +255,13 @@ final class UsageViewModel {
 
         showChartsTab = UserDefaults.standard.object(forKey: PrefKey.showChartsTab) as? Bool ?? true
         showSonnetWindow = UserDefaults.standard.object(forKey: PrefKey.showSonnetWindow) as? Bool ?? true
+        if let saved24h = UserDefaults.standard.object(forKey: PrefKey.use24HourTime) as? Bool {
+            use24HourTime = saved24h
+        } else {
+            // Fresh install / pre-feature install: seed from the system convention.
+            let cycle = Locale.current.hourCycle
+            use24HourTime = cycle == .zeroToTwentyThree || cycle == .oneToTwentyFour
+        }
         // Legacy `usageHistory` (single-account) is migrated into the per-account namespace
         // by `migrateLegacySessionIfPresent`; do not load it here.
         // Update preferences (autoUpdate, lastNotifiedUpdateVersion, updateCheckInterval) are

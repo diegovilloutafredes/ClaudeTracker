@@ -9,6 +9,7 @@ struct UsageWindowView: View {
     let scale: CGFloat
     var paceRateUnit: PaceRateUnit = .perHour
     var isStale: Bool = false
+    var use24Hour: Bool = false
 
     private func sf(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size * scale, weight: weight)
@@ -32,7 +33,7 @@ struct UsageWindowView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "clock")
                         .accessibilityHidden(true)
-                    Text("Resets \(resetDate, style: .relative)")
+                    Text("Resets \(resetDate, style: .relative) · \(resetTimeText(reset: resetDate, now: Date(), use24Hour: use24Hour))")
                 }
                 .font(sf(11))
                 .foregroundStyle(.secondary)

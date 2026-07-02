@@ -227,7 +227,8 @@ struct MenuBarView: View {
                     projectedHours: sonnetPace?.projectedHours,
                     scale: s,
                     paceRateUnit: viewModel.paceRateUnit,
-                    isStale: sonnetIsStale
+                    isStale: sonnetIsStale,
+                    use24Hour: viewModel.use24HourTime
                 )
             }
         }
@@ -282,7 +283,8 @@ struct MenuBarView: View {
             projectedHours: pace?.projectedHours,
             scale: s,
             paceRateUnit: viewModel.paceRateUnit,
-            isStale: windowIsStale
+            isStale: windowIsStale,
+            use24Hour: viewModel.use24HourTime
         )
     }
 

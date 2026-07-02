@@ -119,6 +119,7 @@ enum PrefKey {
     static let popupScaleRebased = "popupScaleRebased"
     static let showChartsTab = "showChartsTab"
     static let showSonnetWindow = "showSonnetWindow"
+    static let use24HourTime = "use24HourTime"
     static let notificationDefaultsVersion = "notificationDefaultsVersion"
     static let accountsMigrationVersion = "accountsMigrationVersion"
     static let autoUpdate = "autoUpdate"

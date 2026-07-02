@@ -779,13 +779,13 @@
         }
       }
     },
-    "Resets %@": {
-      "comment": "Reset countdown: Resets <relative time>",
+    "Resets %@ · %@": {
+      "comment": "Reset countdown: Resets <relative time> · <absolute time>",
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reinicia en %@"
+            "value": "Reinicia en %@ · %@"
           }
         }
       }
