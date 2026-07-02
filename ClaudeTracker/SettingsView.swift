@@ -307,6 +307,18 @@ struct SettingsView: View {
                 }
                 .padding(.leading, 20)
             }
+
+            HStack(spacing: 10) {
+                Text("Time format")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+                Picker("", selection: $viewModel.use24HourTime) {
+                    Text("AM/PM").tag(false)
+                    Text("24-hour").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
         }
     }
 

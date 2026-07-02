@@ -45,6 +45,16 @@
         }
       }
     },
+    "24-hour": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24 horas"
+          }
+        }
+      }
+    },
     "5-Hour": {
       "comment": "Short label for 5-hour window in charts section header",
       "localizations": {
@@ -132,6 +142,16 @@
         }
       },
       "comment": "Chart stats while hovering: value at the hovered time, then the time"
+    },
+    "AM/PM": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AM/PM"
+          }
+        }
+      }
     },
     "Account": {
       "comment": "Settings section header",
@@ -1060,6 +1080,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Probar"
+          }
+        }
+      }
+    },
+    "Time format": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formato de hora"
           }
         }
       }
