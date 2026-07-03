@@ -10,6 +10,8 @@ struct UsageWindowView: View {
     var paceRateUnit: PaceRateUnit = .perHour
     var isStale: Bool = false
     var use24Hour: Bool = false
+    /// 7-day windows include month + day in the absolute reset time; 5-hour windows don't.
+    var includeResetDate: Bool = false
 
     private func sf(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size * scale, weight: weight)
@@ -33,7 +35,7 @@ struct UsageWindowView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "clock")
                         .accessibilityHidden(true)
-                    Text("Resets \(resetDate, style: .relative) · \(resetTimeText(reset: resetDate, now: Date(), use24Hour: use24Hour))")
+                    Text("Resets \(resetDate, style: .relative) · \(resetTimeText(reset: resetDate, now: Date(), use24Hour: use24Hour, includeDate: includeResetDate))")
                 }
                 .font(sf(11))
                 .foregroundStyle(.secondary)

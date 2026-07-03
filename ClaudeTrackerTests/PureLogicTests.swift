@@ -279,6 +279,34 @@ final class PureLogicTests: XCTestCase {
         // ICU zero-pads the hour in 24-hour mode ("09:05", digital-clock style).
         XCTAssertEqual(normalizedTime(text), "Tue 09:05")
     }
+
+    func testResetTimeTextWithDateAddsMonthDay24Hour() {
+        let cal = gmtCalendar()
+        // 7-day-style horizon: reset lands Tuesday 2026-07-07.
+        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 10, minute: 0))!
+        let reset = cal.date(from: DateComponents(year: 2026, month: 7, day: 7, hour: 9, minute: 5))!
+        let text = resetTimeText(reset: reset, now: now, use24Hour: true, includeDate: true, calendar: cal, locale: enUS)
+        // ICU joins a full date and time with a locale connector ("at" in English).
+        XCTAssertEqual(normalizedTime(text), "Tue, Jul 7 at 09:05")
+    }
+
+    func testResetTimeTextWithDateAddsMonthDay12Hour() {
+        let cal = gmtCalendar()
+        // Reset lands Thursday 2026-07-02, the day after `now`.
+        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 23, minute: 0))!
+        let reset = cal.date(from: DateComponents(year: 2026, month: 7, day: 2, hour: 17, minute: 30))!
+        let text = resetTimeText(reset: reset, now: now, use24Hour: false, includeDate: true, calendar: cal, locale: enUS)
+        XCTAssertEqual(normalizedTime(text), "Thu, Jul 2 at 5:30 PM")
+    }
+
+    func testResetTimeTextWithDateSameDayShowsTimeOnly() {
+        let cal = gmtCalendar()
+        // A 7-day window resetting today: the countdown already covers it — no date.
+        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 10, minute: 0))!
+        let reset = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 17, minute: 30))!
+        let text = resetTimeText(reset: reset, now: now, use24Hour: true, includeDate: true, calendar: cal, locale: enUS)
+        XCTAssertEqual(normalizedTime(text), "17:30")
+    }
 }
 
 /// Fixture-based decoding tests against captured shapes of the unofficial claude.ai API.

@@ -134,10 +134,11 @@ enum PrefKey {
 /// Formats the absolute wall-clock time of a window reset for display next to the countdown.
 ///
 /// The hour cycle is pinned via `Locale.Components.hourCycle` so the user's 12/24-hour choice
-/// wins over the locale's preference while weekday names stay localized. An abbreviated
-/// weekday is prepended when the reset is not on the same calendar day as `now` — 7-day
-/// windows always reset within a week, so a full date is never needed.
-func resetTimeText(reset: Date, now: Date, use24Hour: Bool,
+/// wins over the locale's preference while weekday/month names stay localized. When the reset
+/// is not on the same calendar day as `now`, an abbreviated weekday is prepended; `includeDate`
+/// additionally adds the abbreviated month + day (used by the 7-day windows — a weekday alone
+/// reads ambiguous when the reset lands on today's weekday next week).
+func resetTimeText(reset: Date, now: Date, use24Hour: Bool, includeDate: Bool = false,
                    calendar: Calendar = .current, locale: Locale = .current) -> String {
     var components = Locale.Components(locale: locale)
     components.hourCycle = use24Hour ? .zeroToTwentyThree : .oneToTwelve
@@ -148,6 +149,9 @@ func resetTimeText(reset: Date, now: Date, use24Hour: Bool,
         .minute()
     if !calendar.isDate(reset, inSameDayAs: now) {
         style = style.weekday(.abbreviated)
+        if includeDate {
+            style = style.month(.abbreviated).day()
+        }
     }
     return reset.formatted(style)
 }

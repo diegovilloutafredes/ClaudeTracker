@@ -228,7 +228,8 @@ struct MenuBarView: View {
                     scale: s,
                     paceRateUnit: viewModel.paceRateUnit,
                     isStale: sonnetIsStale,
-                    use24Hour: viewModel.use24HourTime
+                    use24Hour: viewModel.use24HourTime,
+                    includeResetDate: true
                 )
             }
         }
@@ -284,7 +285,8 @@ struct MenuBarView: View {
             scale: s,
             paceRateUnit: viewModel.paceRateUnit,
             isStale: windowIsStale,
-            use24Hour: viewModel.use24HourTime
+            use24Hour: viewModel.use24HourTime,
+            includeResetDate: windowKey == .sevenDay
         )
     }
 
