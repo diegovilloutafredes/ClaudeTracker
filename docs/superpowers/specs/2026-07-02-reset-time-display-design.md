@@ -12,9 +12,10 @@ Each usage window row shows a live countdown to the window reset ("Resets in 2 h
 **Usage row (`UsageWindowView.swift`):** the reset line becomes
 
 ```
-🕐 Resets in 2 hr, 15 min · 5:30 PM        (12-hour)
-🕐 Resets in 2 hr, 15 min · 17:30          (24-hour)
-🕐 Resets in 2 days · Wed 5:30 PM          (reset not today → weekday prefix)
+🕐 Resets in 2 hr, 15 min · 5:30 PM         (12-hour)
+🕐 Resets in 2 hr, 15 min · 17:30           (24-hour)
+🕐 Resets in 2 days · Wed 5:30 PM           (5-hour window past midnight → weekday prefix)
+🕐 Resets in 6 days · Thu, Jul 9 at 17:00   (7-day windows → full date)
 ```
 
 Implemented as `Text("Resets \(resetDate, style: .relative) · \(absoluteText)")`. The relative part keeps SwiftUI's live per-second updating; the absolute part is a plain `String` recomputed on every poll-driven render, which is more than enough (it only changes when `resets_at` changes or midnight passes).
@@ -40,7 +41,8 @@ func resetTimeText(reset: Date, now: Date, use24Hour: Bool,
 ```
 
 Rules:
-- **Weekday:** included (abbreviated) when `reset` is not in the same calendar day as `now` — covers the 7-day windows, which always reset within a week, so a full date is never needed.
+- **Weekday:** included (abbreviated) when `reset` is not in the same calendar day as `now`.
+- **Full date (`includeDate: Bool = false`):** the 7-day windows (7-Day, Sonnet) pass `true` — when the reset is not today, the abbreviated month + day are added (`Thu, Jul 9 at 17:00`; ICU supplies the locale's date–time connector). Rationale: a weekday alone reads ambiguous when a reset ~7 days out lands on today's weekday, and week-scale planning is calendar-date planning. The 5-hour window passes `false`; a same-day 7-day reset also shows time only (the countdown already covers it). Exposed on `UsageWindowView` as `includeResetDate`, set per call site (`windowKey == .sevenDay`, Sonnet row hardcodes `true`).
 - **Hour cycle:** build the format locale from `Locale.Components(locale:)` with `hourCycle` pinned to `.zeroToTwentyThree` (24 h) or `.oneToTwelve` (12 h), then `Locale(components:)`. Pinning the cycle at the locale level makes every hour symbol resolve to the chosen cycle while keeping localized weekday names (e.g. "mié" in Spanish).
 - **Symbols:** `.hour(.defaultDigits(amPM: use24Hour ? .omitted : .abbreviated)).minute()`, plus `.weekday(.abbreviated)` when the weekday rule applies. `Date.FormatStyle` handles the rest.
 

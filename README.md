@@ -23,7 +23,7 @@ A macOS menu bar app that shows your [Claude AI](https://claude.ai) usage limits
 - Live 5-Hour and 7-Day utilization bars with color-coded thresholds (green / orange / red)
 - **7-Day Sonnet** sub-window bar (toggleable in Settings) for Max users tracking Sonnet-specific consumption
 - **Multi-account** — sign in to multiple Claude accounts and switch between them from the popover header; each account is isolated in its own browser session (no cookie collisions); per-account chart history and pace state
-- Reset countdowns with relative and absolute time ("Resets in 3 hr · 5:30 PM" — AM/PM or 24-hour, configurable in Settings)
+- Reset countdowns with relative and absolute time ("Resets in 3 hr · 5:30 PM" — AM/PM or 24-hour, configurable in Settings); 7-day windows include the full date ("Resets in 6 days · Thu, Jul 9 at 17:00")
 - Menu bar icon showing the selected window's utilization percentage; icon and badge use a continuous green → yellow → orange → red urgency gradient
 - Subscription badge (Pro, Max 5x, Max 20x, Team, Enterprise)
 - **Charts tab** — historical area + line charts for all four windows with selectable time ranges (1h / 5h / 24h / 7d / 30d) and hover-interactive crosshair
