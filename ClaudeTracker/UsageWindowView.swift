@@ -9,9 +9,10 @@ struct UsageWindowView: View {
     let scale: CGFloat
     var paceRateUnit: PaceRateUnit = .perHour
     var isStale: Bool = false
-    var use24Hour: Bool = false
+    // No defaults: a call site that forgot these would silently ignore the Time format setting.
+    let use24Hour: Bool
     /// 7-day windows include month + day in the absolute reset time; 5-hour windows don't.
-    var includeResetDate: Bool = false
+    let includeResetDate: Bool
 
     private func sf(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size * scale, weight: weight)
@@ -31,11 +32,15 @@ struct UsageWindowView: View {
             ProgressView(value: isStale ? 0.0 : window.utilizationFraction)
                 .tint(isStale ? Color.secondary : window.utilizationColor)
 
-            if let resetDate = window.resetsAtDate {
+            // Hidden when stale: the reset already passed, and the relative style would
+            // count upward from it, rendering "Resets in" directionally wrong.
+            if let resetDate = window.resetsAtDate, !isStale {
+                let absolute = resetTimeText(reset: resetDate, now: Date(),
+                                             use24Hour: use24Hour, includeDate: includeResetDate)
                 HStack(spacing: 4) {
                     Image(systemName: "clock")
                         .accessibilityHidden(true)
-                    Text("Resets in \(resetDate, style: .relative) · \(resetTimeText(reset: resetDate, now: Date(), use24Hour: use24Hour, includeDate: includeResetDate))")
+                    Text("Resets in \(resetDate, style: .relative) · \(absolute)")
                 }
                 .font(sf(11))
                 .foregroundStyle(.secondary)

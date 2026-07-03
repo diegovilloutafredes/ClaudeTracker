@@ -46,6 +46,7 @@
       }
     },
     "24-hour": {
+      "comment": "Time format picker option (paired with AM/PM): 24-hour clock",
       "localizations": {
         "es": {
           "stringUnit": {
@@ -144,6 +145,7 @@
       "comment": "Chart stats while hovering: value at the hovered time, then the time"
     },
     "AM/PM": {
+      "comment": "Time format picker option (paired with 24-hour): 12-hour clock with day-period markers",
       "localizations": {
         "es": {
           "stringUnit": {
@@ -1085,6 +1087,7 @@
       }
     },
     "Time format": {
+      "comment": "Settings label for the AM/PM vs 24-hour picker",
       "localizations": {
         "es": {
           "stringUnit": {

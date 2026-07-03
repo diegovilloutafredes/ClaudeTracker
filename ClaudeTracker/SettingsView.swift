@@ -318,6 +318,7 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .accessibilityLabel(Text("Time format"))
             }
         }
     }
