@@ -35,7 +35,7 @@ struct UsageWindowView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "clock")
                         .accessibilityHidden(true)
-                    Text("Resets \(resetDate, style: .relative) · \(resetTimeText(reset: resetDate, now: Date(), use24Hour: use24Hour, includeDate: includeResetDate))")
+                    Text("Resets in \(resetDate, style: .relative) · \(resetTimeText(reset: resetDate, now: Date(), use24Hour: use24Hour, includeDate: includeResetDate))")
                 }
                 .font(sf(11))
                 .foregroundStyle(.secondary)

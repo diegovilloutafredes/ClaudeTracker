@@ -799,8 +799,8 @@
         }
       }
     },
-    "Resets %@ · %@": {
-      "comment": "Reset countdown: Resets <relative time> · <absolute time>",
+    "Resets in %@ · %@": {
+      "comment": "Reset countdown: Resets in <relative time> · <absolute time>",
       "localizations": {
         "es": {
           "stringUnit": {
