@@ -2,8 +2,11 @@ import SwiftUI
 import Charts
 
 /// Hour:minute axis/hover labels for spans under ~a day; abbreviated month + day beyond.
-private func chartAxisFormat(forSpan span: TimeInterval) -> Date.FormatStyle {
-    span < 25 * 3600 ? .dateTime.hour().minute() : .dateTime.month(.abbreviated).day()
+/// The hour cycle is pinned to the Time format setting so chart times match the reset line.
+private func chartAxisFormat(forSpan span: TimeInterval, use24Hour: Bool) -> Date.FormatStyle {
+    span < 25 * 3600
+        ? .dateTime.hour().minute().locale(pinnedHourCycleLocale(use24Hour: use24Hour))
+        : .dateTime.month(.abbreviated).day()
 }
 
 /// The Charts tab of the popover: a time-range picker plus, per usage window,
@@ -89,7 +92,8 @@ struct MenuBarChartsView: View {
                 xDomain: xDomain,
                 selectedTime: selectedTime,
                 paceRateUnit: nil,
-                scale: scale
+                scale: scale,
+                use24Hour: viewModel.use24HourTime
             )
             MiniChartView(
                 label: "Pace",
@@ -99,7 +103,8 @@ struct MenuBarChartsView: View {
                 xDomain: xDomain,
                 selectedTime: selectedTime,
                 paceRateUnit: viewModel.paceRateUnit,
-                scale: scale
+                scale: scale,
+                use24Hour: viewModel.use24HourTime
             )
             if let w = window {
                 projectionChart(
@@ -148,7 +153,7 @@ struct MenuBarChartsView: View {
             let xMax = [resetDate, projEnd].compactMap { $0 }.max() ?? resetDate
             let accentColor = forecastAccentColor(paceRate: paceRate, lastVal: lastVal, lastDate: lastDate, resetDate: resetDate)
             let span = xMax.timeIntervalSince(windowStart)
-            let xFmt = chartAxisFormat(forSpan: span)
+            let xFmt = chartAxisFormat(forSpan: span, use24Hour: viewModel.use24HourTime)
             let hovered: (Date, Double)? = selectedTime.wrappedValue.flatMap { t in
                 (windowStart...xMax).contains(t)
                     ? pairs.min(by: { abs($0.0.timeIntervalSince(t)) < abs($1.0.timeIntervalSince(t)) })
@@ -319,6 +324,7 @@ private struct MiniChartView: View {
     @Binding var selectedTime: Date?
     let paceRateUnit: PaceRateUnit?
     let scale: CGFloat
+    let use24Hour: Bool
 
     private func sf(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size * scale, weight: weight)
@@ -334,7 +340,7 @@ private struct MiniChartView: View {
         let avg = values.isEmpty ? 0.0 : values.reduce(0, +) / Double(values.count)
         let color: Color = urgencyColor(min((values.last ?? 0) / 100.0, 1.0))
         let span = xDomain.upperBound.timeIntervalSince(xDomain.lowerBound)
-        let xFormat = chartAxisFormat(forSpan: span)
+        let xFormat = chartAxisFormat(forSpan: span, use24Hour: use24Hour)
         let hovered: (Date, Double)? = {
             guard let t = selectedTime else { return nil }
             let pairs = filtered.compactMap { dp -> (Date, Double)? in

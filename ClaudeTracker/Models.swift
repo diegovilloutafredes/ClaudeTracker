@@ -131,18 +131,31 @@ enum PrefKey {
 
 // MARK: - Reset Time Display
 
+/// Whether a locale's hour cycle conventionally uses a 24-hour clock — seeds the
+/// Time format setting on first launch.
+func prefers24HourClock(_ locale: Locale) -> Bool {
+    locale.hourCycle == .zeroToTwentyThree || locale.hourCycle == .oneToTwentyFour
+}
+
+/// A copy of `base` with its hour cycle pinned to the user's 12/24-hour choice, so time
+/// formatting honors the Time format setting over the locale's convention while weekday
+/// and month names stay localized. Shared by `resetTimeText` and the chart axis labels.
+func pinnedHourCycleLocale(use24Hour: Bool, base: Locale = .current) -> Locale {
+    var components = Locale.Components(locale: base)
+    components.hourCycle = use24Hour ? .zeroToTwentyThree : .oneToTwelve
+    return Locale(components: components)
+}
+
 /// Formats the absolute wall-clock time of a window reset for display next to the countdown.
 ///
-/// The hour cycle is pinned via `Locale.Components.hourCycle` so the user's 12/24-hour choice
+/// The hour cycle is pinned via `pinnedHourCycleLocale` so the user's 12/24-hour choice
 /// wins over the locale's preference while weekday/month names stay localized. When the reset
 /// is not on the same calendar day as `now`, an abbreviated weekday is prepended; `includeDate`
 /// additionally adds the abbreviated month + day (used by the 7-day windows — a weekday alone
 /// reads ambiguous when the reset lands on today's weekday next week).
 func resetTimeText(reset: Date, now: Date, use24Hour: Bool, includeDate: Bool = false,
                    calendar: Calendar = .current, locale: Locale = .current) -> String {
-    var components = Locale.Components(locale: locale)
-    components.hourCycle = use24Hour ? .zeroToTwentyThree : .oneToTwelve
-    let pinned = Locale(components: components)
+    let pinned = pinnedHourCycleLocale(use24Hour: use24Hour, base: locale)
 
     var style = Date.FormatStyle(locale: pinned, calendar: calendar, timeZone: calendar.timeZone)
         .hour(.defaultDigits(amPM: use24Hour ? .omitted : .abbreviated))

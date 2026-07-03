@@ -307,6 +307,19 @@ final class PureLogicTests: XCTestCase {
         let text = resetTimeText(reset: reset, now: now, use24Hour: true, includeDate: true, calendar: cal, locale: enUS)
         XCTAssertEqual(normalizedTime(text), "17:30")
     }
+
+    func testPrefers24HourClockByLocale() {
+        XCTAssertFalse(prefers24HourClock(Locale(identifier: "en_US")))  // h12
+        XCTAssertTrue(prefers24HourClock(Locale(identifier: "de_DE")))   // h23
+        XCTAssertTrue(prefers24HourClock(Locale(identifier: "fr_FR")))   // h23
+    }
+
+    func testPinnedHourCycleLocaleOverridesBase() {
+        XCTAssertEqual(pinnedHourCycleLocale(use24Hour: true, base: Locale(identifier: "en_US")).hourCycle,
+                       .zeroToTwentyThree)
+        XCTAssertEqual(pinnedHourCycleLocale(use24Hour: false, base: Locale(identifier: "de_DE")).hourCycle,
+                       .oneToTwelve)
+    }
 }
 
 /// Fixture-based decoding tests against captured shapes of the unofficial claude.ai API.
