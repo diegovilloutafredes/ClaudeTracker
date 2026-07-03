@@ -258,9 +258,11 @@ final class UsageViewModel {
         if let saved24h = UserDefaults.standard.object(forKey: PrefKey.use24HourTime) as? Bool {
             use24HourTime = saved24h
         } else {
-            // Fresh install / pre-feature install: seed from the system convention.
-            let cycle = Locale.current.hourCycle
-            use24HourTime = cycle == .zeroToTwentyThree || cycle == .oneToTwentyFour
+            // Fresh install / pre-feature install: seed from the system convention and persist
+            // immediately — the didSet skips the write when the seed equals the default (false),
+            // which would otherwise re-seed from the live locale on every launch.
+            use24HourTime = prefers24HourClock(Locale.current)
+            UserDefaults.standard.set(use24HourTime, forKey: PrefKey.use24HourTime)
         }
         // Legacy `usageHistory` (single-account) is migrated into the per-account namespace
         // by `migrateLegacySessionIfPresent`; do not load it here.
