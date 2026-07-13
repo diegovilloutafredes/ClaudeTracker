@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Combine
 import WebKit
+import ServiceManagement
 
 /// Central state for the app — owns API polling, UserDefaults persistence, and notification dispatch.
 @Observable @MainActor
@@ -140,6 +141,17 @@ final class UsageViewModel {
     var use24HourTime: Bool = false {
         didSet { guard use24HourTime != oldValue else { return }; UserDefaults.standard.set(use24HourTime, forKey: PrefKey.use24HourTime) }
     }
+    /// Whether the app registers itself as a login item so it starts when the user logs in.
+    /// The `isInitialized` guard keeps `loadPersistedPreferences()` from touching
+    /// `SMAppService` during `init` — registration side effects belong to `start()` and
+    /// user toggles only.
+    var launchAtLogin: Bool = true {
+        didSet {
+            guard isInitialized, launchAtLogin != oldValue else { return }
+            UserDefaults.standard.set(launchAtLogin, forKey: PrefKey.launchAtLogin)
+            applyLaunchAtLogin()
+        }
+    }
 
     @ObservationIgnored private var isInitialized = false
     /// API service for the active account. nil before the first account is built or during migration.
@@ -193,6 +205,7 @@ final class UsageViewModel {
 
         loadAccountsAndStartActive()
         updates.start()
+        syncLaunchAtLogin()
 
         // `NSApp` is nil at this point on macOS 26 because `UsageViewModel` is allocated as a
         // `@State` initializer inside `ClaudeTrackerApp.init`, before `NSApplication.shared`
@@ -207,6 +220,36 @@ final class UsageViewModel {
                 .sink { [weak self] _ in
                     Task { @MainActor [weak self] in self?.invalidateMenuBarImage() }
                 }
+        }
+    }
+
+    /// Reconciles the login-item registration with the preference at startup. First launch
+    /// with this feature (no stored pref) opts in by default. If the user later removed the
+    /// login item in System Settings, the toggle follows the system state instead of
+    /// re-registering behind their back.
+    private func syncLaunchAtLogin() {
+        if UserDefaults.standard.object(forKey: PrefKey.launchAtLogin) == nil {
+            UserDefaults.standard.set(true, forKey: PrefKey.launchAtLogin)
+            applyLaunchAtLogin()
+        } else if launchAtLogin && SMAppService.mainApp.status == .notRegistered {
+            launchAtLogin = false
+        }
+    }
+
+    /// Registers or unregisters the app as a login item to match `launchAtLogin`.
+    private func applyLaunchAtLogin() {
+        do {
+            if launchAtLogin {
+                try SMAppService.mainApp.register()
+                AppLogger.shared.info("launch at login registered")
+            } else {
+                try SMAppService.mainApp.unregister()
+                AppLogger.shared.info("launch at login unregistered")
+            }
+        } catch {
+            // Unregistering an item the user already removed in System Settings throws;
+            // that's the expected no-op path of syncLaunchAtLogin, so log at info level.
+            AppLogger.shared.info("launch at login \(launchAtLogin ? "register" : "unregister") failed: \(error.localizedDescription)")
         }
     }
 
@@ -254,6 +297,7 @@ final class UsageViewModel {
         let savedPopupScale = UserDefaults.standard.double(forKey: PrefKey.popupScale)
         popupScale = savedPopupScale > 0 ? savedPopupScale : 1.0
 
+        launchAtLogin = UserDefaults.standard.object(forKey: PrefKey.launchAtLogin) as? Bool ?? true
         showChartsTab = UserDefaults.standard.object(forKey: PrefKey.showChartsTab) as? Bool ?? true
         showModelWindows = UserDefaults.standard.object(forKey: PrefKey.showModelWindows) as? Bool ?? true
         if let saved24h = UserDefaults.standard.object(forKey: PrefKey.use24HourTime) as? Bool {

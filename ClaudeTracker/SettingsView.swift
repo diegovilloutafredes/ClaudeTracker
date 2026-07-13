@@ -86,6 +86,9 @@ struct SettingsView: View {
 
             updateRow
 
+            Toggle("Launch at login", isOn: $viewModel.launchAtLogin)
+                .toggleStyle(GreenSwitchStyle())
+
             Toggle("Auto-install updates", isOn: $viewModel.updates.autoUpdate)
                 .toggleStyle(GreenSwitchStyle())
             if viewModel.updates.autoUpdate {

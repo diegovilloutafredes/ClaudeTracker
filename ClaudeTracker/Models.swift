@@ -127,6 +127,7 @@ enum PrefKey {
     static let notificationDefaultsVersion = "notificationDefaultsVersion"
     static let accountsMigrationVersion = "accountsMigrationVersion"
     static let autoUpdate = "autoUpdate"
+    static let launchAtLogin = "launchAtLogin"
     static let lastNotifiedUpdateVersion = "lastNotifiedUpdateVersion"
     static let updateCheckInterval = "updateCheckInterval"
     /// Pre-multi-account chart history blob; migrated to `usageHistory.<accountID>`.

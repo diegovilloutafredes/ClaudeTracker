@@ -527,6 +527,17 @@
         }
       }
     },
+    "Launch at login": {
+      "comment": "Toggle to register the app as a login item",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir al iniciar sesión"
+          }
+        }
+      }
+    },
     "Loading…": {
       "comment": "Loading indicator label in popover",
       "localizations": {
