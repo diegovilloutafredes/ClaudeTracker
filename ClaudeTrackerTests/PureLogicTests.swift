@@ -401,6 +401,132 @@ final class APIFixtureTests: XCTestCase {
         XCTAssertNil(r.sevenDaySonnet)
     }
 
+    // MARK: - Limits array (model-scoped windows)
+
+    func testUsageResponseDecodesScopedModelLimits() throws {
+        // Mirrors the live payload shape: the Fable-era API reports per-model usage in the
+        // `limits` array (kind == "weekly_scoped") instead of the legacy seven_day_* fields.
+        let json = """
+        {
+          "five_hour": {"utilization": 3, "resets_at": "2026-07-11T14:49:59.540253+00:00"},
+          "seven_day": {"utilization": 0, "resets_at": "2026-07-16T20:59:59.540280+00:00"},
+          "seven_day_sonnet": null,
+          "limits": [
+            {"kind": "session", "group": "session", "percent": 3, "severity": "normal",
+             "resets_at": "2026-07-11T14:49:59.732320+00:00", "scope": null, "is_active": true},
+            {"kind": "weekly_all", "group": "weekly", "percent": 0, "severity": "normal",
+             "resets_at": "2026-07-16T20:59:59.732344+00:00", "scope": null, "is_active": false},
+            {"kind": "weekly_scoped", "group": "weekly", "percent": 1, "severity": "normal",
+             "resets_at": "2026-07-16T20:59:59.732614+00:00",
+             "scope": {"model": {"id": null, "display_name": "Fable"}, "surface": null}, "is_active": false}
+          ]
+        }
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertEqual(r.limits?.count, 3)
+        let scoped = r.scopedModelWindows
+        XCTAssertEqual(scoped.count, 1)
+        XCTAssertEqual(scoped.first?.label, "Fable")
+        XCTAssertEqual(scoped.first?.paceKey, "scoped.Fable")
+        XCTAssertEqual(scoped.first?.window.utilization, 1)
+        XCTAssertNotNil(scoped.first?.window.resetsAtDate)
+    }
+
+    func testScopedModelWindowsSkipEntriesWithoutModelOrPercent() throws {
+        let json = """
+        {
+          "limits": [
+            {"kind": "weekly_scoped", "percent": 5, "scope": {"model": null}},
+            {"kind": "weekly_scoped", "percent": null, "scope": {"model": {"id": null, "display_name": "Fable"}}},
+            {"kind": "session", "percent": 3, "scope": null}
+          ]
+        }
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertEqual(r.limits?.count, 3)
+        XCTAssertTrue(r.scopedModelWindows.isEmpty)
+    }
+
+    func testScopedModelWindowsOmitDuplicateOfLegacySonnetWindow() throws {
+        // If the API ever ships both the legacy seven_day_sonnet window and a scoped
+        // "Sonnet" limit, only the legacy row should render — no duplicate bars.
+        let json = """
+        {
+          "seven_day_sonnet": {"utilization": 30, "resets_at": "2026-07-16T21:00:00Z"},
+          "limits": [
+            {"kind": "weekly_scoped", "percent": 30, "resets_at": "2026-07-16T21:00:00Z",
+             "scope": {"model": {"id": null, "display_name": "Sonnet"}}},
+            {"kind": "weekly_scoped", "percent": 1, "resets_at": "2026-07-16T21:00:00Z",
+             "scope": {"model": {"id": null, "display_name": "Fable"}}}
+          ]
+        }
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertEqual(r.scopedModelWindows.map(\.label), ["Fable"])
+    }
+
+    func testLimitsDecodeIsPerElementFailSoft() throws {
+        // One malformed entry must not wipe the whole array — the Fable row would
+        // silently disappear otherwise.
+        let json = """
+        {
+          "limits": [
+            {"kind": 42},
+            {"kind": "weekly_scoped", "percent": 1, "resets_at": "2026-07-16T21:00:00Z",
+             "scope": {"model": {"id": null, "display_name": "Fable"}}}
+          ]
+        }
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertEqual(r.scopedModelWindows.map(\.label), ["Fable"])
+    }
+
+    func testScopedModelWindowsDedupeDuplicateLabels() throws {
+        // The scope object also carries a `surface` axis, so two weekly_scoped entries
+        // for the same model are plausible. Keep the max-percent one — a duplicate label
+        // would collide on ForEach identity and interleave two series into one pace bucket.
+        let json = """
+        {
+          "limits": [
+            {"kind": "weekly_scoped", "percent": 5, "resets_at": "2026-07-16T21:00:00Z",
+             "scope": {"model": {"id": null, "display_name": "Fable"}, "surface": "a"}},
+            {"kind": "weekly_scoped", "percent": 40, "resets_at": "2026-07-16T21:00:00Z",
+             "scope": {"model": {"id": null, "display_name": "Fable"}, "surface": "b"}},
+            {"kind": "weekly_scoped", "percent": 2, "resets_at": "2026-07-16T21:00:00Z",
+             "scope": {"model": {"id": null, "display_name": "Haiku"}}}
+          ]
+        }
+        """
+        let r = try decode(UsageResponse.self, json)
+        let scoped = r.scopedModelWindows
+        XCTAssertEqual(scoped.map(\.label), ["Fable", "Haiku"])
+        XCTAssertEqual(scoped.first?.window.utilization, 40)
+    }
+
+    func testScopedModelWindowsSkipEmptyDisplayName() throws {
+        let json = """
+        {
+          "limits": [
+            {"kind": "weekly_scoped", "percent": 5, "scope": {"model": {"id": null, "display_name": ""}}}
+          ]
+        }
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertTrue(r.scopedModelWindows.isEmpty)
+    }
+
+    func testUsageResponseSurvivesLimitsOfWrongType() throws {
+        let json = """
+        {
+          "five_hour": {"utilization": 42, "resets_at": "2026-06-09T18:00:00Z"},
+          "limits": "unexpected-string"
+        }
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertEqual(r.fiveHour?.utilization, 42)
+        XCTAssertNil(r.limits)
+    }
+
     // MARK: - AccountInfo
 
     func testAccountInfoDecodesMembershipsAndTier() throws {
@@ -421,6 +547,56 @@ final class APIFixtureTests: XCTestCase {
         XCTAssertEqual(info.displayName, "Diego V")
         XCTAssertEqual(info.emailAddress, "d@example.com")
         XCTAssertEqual(info.subscriptionLabel, "Max 5×")
+    }
+
+    func testAccountInfoDerivesTeamLabelFromRavenCapability() throws {
+        // Team/Enterprise orgs report the "raven" capability with raven_type
+        // distinguishing the plan — mirrors a live Team-account payload.
+        let json = """
+        {
+          "email_address": "d@company.com",
+          "memberships": [
+            {"organization": {
+              "uuid": "abc", "name": "Trust Technologies",
+              "capabilities": ["raven", "chat"],
+              "rate_limit_tier": "default_raven",
+              "raven_type": "team"
+            }}
+          ]
+        }
+        """
+        let info = try decode(AccountInfo.self, json)
+        XCTAssertEqual(info.subscriptionLabel, "Team")
+    }
+
+    func testAccountInfoDerivesEnterpriseLabelFromRavenType() throws {
+        let json = """
+        {
+          "email_address": "d@company.com",
+          "memberships": [
+            {"organization": {
+              "capabilities": ["raven", "chat"],
+              "rate_limit_tier": "default_raven",
+              "raven_type": "enterprise"
+            }}
+          ]
+        }
+        """
+        let info = try decode(AccountInfo.self, json)
+        XCTAssertEqual(info.subscriptionLabel, "Enterprise")
+    }
+
+    func testAccountInfoRavenWithoutTypeDefaultsToTeam() throws {
+        let json = """
+        {
+          "email_address": "d@company.com",
+          "memberships": [
+            {"organization": {"capabilities": ["raven", "chat"], "rate_limit_tier": "default_raven"}}
+          ]
+        }
+        """
+        let info = try decode(AccountInfo.self, json)
+        XCTAssertEqual(info.subscriptionLabel, "Team")
     }
 
     func testAccountInfoDecodesWithoutMemberships() throws {
@@ -532,6 +708,23 @@ final class APIFixtureTests: XCTestCase {
         let (update, dates) = parseGitHubReleases(Data(json.utf8), currentVersion: "1.20.0")
         XCTAssertNil(update)
         XCTAssertEqual(dates.count, 1)
+    }
+
+    func testParseReleasesSkipsPrereleaseAndDraft() {
+        // A pre-release published for testing must never reach auto-update users.
+        let json = """
+        [
+          {"tag_name": "v9.9.9", "html_url": "https://github.com/x/y/releases/tag/v9.9.9",
+           "published_at": "2026-06-01T00:00:00Z", "prerelease": true, "assets": []},
+          {"tag_name": "v9.0.0", "html_url": "https://github.com/x/y/releases/tag/v9.0.0",
+           "published_at": "2026-05-15T00:00:00Z", "draft": true, "assets": []},
+          {"tag_name": "v2.0.0", "html_url": "https://github.com/x/y/releases/tag/v2.0.0",
+           "published_at": "2026-05-01T00:00:00Z", "prerelease": false, "assets": []}
+        ]
+        """
+        let (update, dates) = parseGitHubReleases(Data(json.utf8), currentVersion: "1.0.0")
+        XCTAssertEqual(update?.version, "2.0.0")
+        XCTAssertEqual(dates.count, 3)
     }
 
     func testParseReleasesToleratesRateLimitErrorPayload() {

@@ -44,6 +44,9 @@ struct ScaledSegmentedPicker<T: Hashable, Label: View>: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                // Without the trait, VoiceOver reads a flat row of buttons with no way
+                // to tell which segment is active.
+                .accessibilityAddTraits(selection == option ? [.isSelected] : [])
             }
         }
         .padding(2 * scale)

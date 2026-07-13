@@ -21,7 +21,7 @@ A macOS menu bar app that shows your [Claude AI](https://claude.ai) usage limits
 ## Features
 
 - Live 5-Hour and 7-Day utilization bars with color-coded thresholds (green / orange / red)
-- **7-Day Sonnet** sub-window bar (toggleable in Settings) for Max users tracking Sonnet-specific consumption
+- **Per-model usage** bars (toggleable in Settings) — model-scoped weekly limits reported by the API (e.g. **7-Day Fable**), plus the legacy **7-Day Sonnet** sub-window on accounts that still receive it
 - **Multi-account** — sign in to multiple Claude accounts and switch between them from the popover header; each account is isolated in its own browser session (no cookie collisions); per-account chart history and pace state
 - Reset countdowns with relative and absolute time ("Resets in 3 hr · 5:30 PM" — AM/PM or 24-hour, configurable in Settings); 7-day windows add the full date when the reset isn't today ("Resets in 6 days · Thu, Jul 9 at 17:00")
 - Menu bar icon showing the selected window's utilization percentage; icon and badge use a continuous green → yellow → orange → red urgency gradient
@@ -118,7 +118,7 @@ Each Claude account gets its own `WKWebsiteDataStore(forIdentifier:)`, so cookie
 | `Models.swift` | Codable structs for API responses; `Account` + `AccountStore` + per-account `AccountState`; `MenuBarWindow` display enum; `UpdateInfo`; `computePace()` + pure helpers (`adaptiveCheckInterval`, `isWindowReset`, `windowIsStale`) |
 | `LoginView.swift` | `NSViewRepresentable` wrapping the API web view; `LoginWindowController` |
 | `ToastWindowController.swift` | Floating `NSPanel`-based toast, positioned near the top-right corner |
-| `MenuBarView.swift` | Popover content — scalable progress bars (incl. Sonnet sub-window), reset countdowns, charts tab, update banner, account picker |
+| `MenuBarView.swift` | Popover content — scalable progress bars (incl. per-model rows), reset countdowns, charts tab, update banner, account picker |
 | `SettingsView.swift` | Accounts list (rename / switch / remove), update checker, popup scale, notification and refresh settings |
 | `AppLogger.swift` | Rolling file logger (`~/Library/Logs/ClaudeTracker/`); also writes to `os.log` |
 

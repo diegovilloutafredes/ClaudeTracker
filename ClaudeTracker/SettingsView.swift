@@ -283,7 +283,7 @@ struct SettingsView: View {
             Toggle("Show charts tab", isOn: $viewModel.showChartsTab)
                 .toggleStyle(GreenSwitchStyle())
 
-            Toggle("Show Sonnet usage", isOn: $viewModel.showSonnetWindow)
+            Toggle("Show per-model usage", isOn: $viewModel.showModelWindows)
                 .toggleStyle(GreenSwitchStyle())
 
             Toggle("Show pace in usage tab", isOn: $viewModel.showPace)
@@ -482,12 +482,19 @@ private struct ToastDurationControls: View {
 /// relative to the screen without relying on NSApp.keyWindow, which could be
 /// any window (e.g. the Login window) if focus changed between onAppear and the
 /// async dispatch.
+/// Locale-independent handle for the Settings window — the popover's bring-to-front
+/// button matches on this, never on the (localized) window title.
+let settingsWindowIdentifier = NSUserInterfaceItemIdentifier("claudetracker.settings")
+
 private struct SettingsWindowPositioner: NSViewRepresentable {
     let targetWidth: CGFloat
     let isAuthenticated: Bool
 
     final class Coordinator {
         var closeObserver: NSObjectProtocol?
+        /// Inputs of the last applied frame. Reframing only when these change lets the
+        /// user move/resize the window without every SwiftUI update snapping it back.
+        var lastApplied: (width: CGFloat, authenticated: Bool)?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -502,6 +509,8 @@ private struct SettingsWindowPositioner: NSViewRepresentable {
             guard let window = view.window, let screen = NSScreen.main else { return }
             let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
             window.title = String(format: String(localized: "Settings · v%@"), version)
+            window.identifier = settingsWindowIdentifier
+            coordinator.lastApplied = (targetWidth, isAuthenticated)
             Self.reframe(window: window, screen: screen, targetWidth: targetWidth, isAuthenticated: isAuthenticated)
             // Promote the menu bar app to .regular while Settings is visible so Cmd+Tab finds
             // the app and the window can be brought to front. A dock icon appears as a side
@@ -529,8 +538,14 @@ private struct SettingsWindowPositioner: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         let targetWidth = targetWidth
         let isAuthenticated = isAuthenticated
+        let coordinator = context.coordinator
         Task<Void, Never> { @MainActor in
             guard let window = nsView.window, let screen = NSScreen.main else { return }
+            // Only reframe when the layout inputs actually changed — reapplying on every
+            // SwiftUI update would undo any user-initiated move or resize.
+            guard coordinator.lastApplied?.width != targetWidth
+                    || coordinator.lastApplied?.authenticated != isAuthenticated else { return }
+            coordinator.lastApplied = (targetWidth, isAuthenticated)
             Self.reframe(window: window, screen: screen, targetWidth: targetWidth, isAuthenticated: isAuthenticated)
         }
     }

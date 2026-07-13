@@ -127,6 +127,9 @@ final class ToastWindowController {
         )
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        // Same double-free hazard as the login/OAuth windows: close() would autorelease
+        // the panel while ARC also releases it, crashing in a later CA transaction flush.
+        panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true

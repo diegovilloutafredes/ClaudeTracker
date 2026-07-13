@@ -37,7 +37,7 @@ struct UsageWindowView: View {
             if let resetDate = window.resetsAtDate, !isStale {
                 let absolute = resetTimeText(reset: resetDate, now: Date(),
                                              use24Hour: use24Hour, includeDate: includeResetDate)
-                HStack(spacing: 4) {
+                HStack(spacing: 4 * scale) {
                     Image(systemName: "clock")
                         .accessibilityHidden(true)
                     Text("Resets in \(resetDate, style: .relative) · \(absolute)")
@@ -61,7 +61,7 @@ struct UsageWindowView: View {
             let hrs = resetDate.timeIntervalSinceNow / 3600
             if hrs > 0 {
                 let (icon, text, color) = paceOutlook(proj: proj, hoursToReset: hrs)
-                HStack(spacing: 4) {
+                HStack(spacing: 4 * scale) {
                     Image(systemName: icon).accessibilityHidden(true)
                     Text(text)
                 }
@@ -96,9 +96,10 @@ struct UsageWindowView: View {
             return ("exclamationmark.circle", messages[seed % messages.count], color)
         case .over:
             let early = hoursToReset - proj
+            // Localized: the unit abbreviation differs per language (es: "min", not "m").
             let timeStr = early < 1
-                ? "~\(max(1, Int(early * 60)))m"
-                : "~\(Int(early.rounded()))h"
+                ? String(format: String(localized: "~%dm"), max(1, Int(early * 60)))
+                : String(format: String(localized: "~%dh"), Int(early.rounded()))
             let messages: [LocalizedStringKey] = [
                 "Will hit limit \(timeStr) before reset",
                 "Runs out \(timeStr) before reset",
@@ -127,7 +128,7 @@ struct UsageWindowView: View {
                 : String(format: String(localized: "· full in %dh"), hrs)
         }
 
-        return HStack(spacing: 4) {
+        return HStack(spacing: 4 * scale) {
             Image(systemName: "chart.line.uptrend.xyaxis")
                 .accessibilityHidden(true)
             Text([rateText, projText].compactMap { $0 }.joined(separator: " "))

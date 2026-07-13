@@ -259,7 +259,7 @@ final class ClaudeTrackerTests: XCTestCase {
     // MARK: - Helpers
 
     private func makeInfo(caps: [String], tier: String) -> AccountInfo {
-        let org = AccountOrganization(capabilities: caps, rateLimitTier: tier)
+        let org = AccountOrganization(capabilities: caps, rateLimitTier: tier, ravenType: nil)
         return AccountInfo(fullName: nil, emailAddress: "t@t.com", memberships: [AccountMembership(organization: org)])
     }
 }

@@ -18,7 +18,7 @@ struct MenuBarChartsView: View {
     var viewModel: UsageViewModel
     let scale: CGFloat
 
-    @AppStorage("chartTimeRange") private var chartTimeRange: ChartTimeRange = .oneDay
+    @AppStorage(PrefKey.chartTimeRange) private var chartTimeRange: ChartTimeRange = .oneDay
     /// Shared across all charts: hovering any chart shows the rule mark on all of them.
     @State private var selectedTime: Date?
 
@@ -55,14 +55,14 @@ struct MenuBarChartsView: View {
                         title: "5-Hour", utilKeyPath: \.fiveHour, paceKeyPath: \.fiveHourPace,
                         history: visibleHistory, xDomain: chartXDomain, selectedTime: $selectedTime,
                         window: viewModel.usage?.fiveHour, windowDuration: 5 * 3600,
-                        currentPaceRate: viewModel.pace(for: "five_hour")?.rate
+                        currentPaceRate: viewModel.pace(for: MenuBarWindow.fiveHour.rawValue)?.rate
                     )
                     Divider()
                     windowCharts(
                         title: "7-Day", utilKeyPath: \.sevenDay, paceKeyPath: \.sevenDayPace,
                         history: visibleHistory, xDomain: chartXDomain, selectedTime: $selectedTime,
                         window: viewModel.usage?.sevenDay, windowDuration: 7 * 24 * 3600,
-                        currentPaceRate: viewModel.pace(for: "seven_day")?.rate
+                        currentPaceRate: viewModel.pace(for: MenuBarWindow.sevenDay.rawValue)?.rate
                     )
                 }
             }

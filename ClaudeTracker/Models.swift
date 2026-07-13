@@ -118,7 +118,11 @@ enum PrefKey {
     static let popupScale = "popupScale"
     static let popupScaleRebased = "popupScaleRebased"
     static let showChartsTab = "showChartsTab"
-    static let showSonnetWindow = "showSonnetWindow"
+    static let selectedTab = "selectedTab"
+    static let chartTimeRange = "chartTimeRange"
+    /// Gates all per-model usage rows (legacy Sonnet + scoped limits). The stored key name
+    /// predates the scoped rows and is kept for persistence compatibility.
+    static let showModelWindows = "showSonnetWindow"
     static let use24HourTime = "use24HourTime"
     static let notificationDefaultsVersion = "notificationDefaultsVersion"
     static let accountsMigrationVersion = "accountsMigrationVersion"
@@ -286,6 +290,9 @@ struct UsageResponse: Codable, Sendable {
     let sevenDayOpus: UsageWindow?
     let sevenDaySonnet: UsageWindow?
     let extraUsage: ExtraUsage?
+    /// The newer, generalized limit list. Model-scoped weekly limits (e.g. Fable) only
+    /// appear here — the legacy `seven_day_*` fields are null on Fable-era accounts.
+    let limits: [UsageLimit]?
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
@@ -293,20 +300,24 @@ struct UsageResponse: Codable, Sendable {
         case sevenDayOpus = "seven_day_opus"
         case sevenDaySonnet = "seven_day_sonnet"
         case extraUsage = "extra_usage"
+        case limits
     }
 
     init(fiveHour: UsageWindow?, sevenDay: UsageWindow?, sevenDayOpus: UsageWindow?,
-         sevenDaySonnet: UsageWindow?, extraUsage: ExtraUsage?) {
+         sevenDaySonnet: UsageWindow?, extraUsage: ExtraUsage?, limits: [UsageLimit]? = nil) {
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
         self.sevenDayOpus = sevenDayOpus
         self.sevenDaySonnet = sevenDaySonnet
         self.extraUsage = extraUsage
+        self.limits = limits
     }
 
     /// Fail-soft decoding: a malformed sub-window (e.g. the API ships `"utilization": null`
     /// in `seven_day_opus`, which the UI doesn't even display) must not poison the whole
-    /// response. Each window decodes independently; a failed one becomes nil.
+    /// response. Each window decodes independently; a failed one becomes nil. `limits`
+    /// entries are additionally fail-soft per element so one unexpected entry can't hide
+    /// the model-scoped rows.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.fiveHour = (try? c.decodeIfPresent(UsageWindow.self, forKey: .fiveHour)) ?? nil
@@ -314,6 +325,8 @@ struct UsageResponse: Codable, Sendable {
         self.sevenDayOpus = (try? c.decodeIfPresent(UsageWindow.self, forKey: .sevenDayOpus)) ?? nil
         self.sevenDaySonnet = (try? c.decodeIfPresent(UsageWindow.self, forKey: .sevenDaySonnet)) ?? nil
         self.extraUsage = (try? c.decodeIfPresent(ExtraUsage.self, forKey: .extraUsage)) ?? nil
+        self.limits = ((try? c.decodeIfPresent([FailableLimit].self, forKey: .limits)) ?? nil)
+            .map { $0.compactMap(\.limit) }
     }
 
     /// The windows shown in the UI, in display order.
@@ -326,6 +339,78 @@ struct UsageResponse: Codable, Sendable {
         if let w = sevenDay { result.append((.sevenDay, w)) }
         return result
     }
+
+    /// Model-scoped weekly limits (e.g. "Fable") from the `limits` array, as displayable
+    /// windows. A model that already renders via its legacy sub-window (Sonnet) is skipped
+    /// so it can't show as a duplicate row. Duplicate labels (the scope object also has a
+    /// `surface` axis, so same-model entries are plausible) are collapsed to the
+    /// max-percent entry — a duplicate would collide on ForEach identity and interleave
+    /// two series into one pace-history bucket.
+    var scopedModelWindows: [ScopedModelWindow] {
+        var result: [ScopedModelWindow] = []
+        var indexByLabel: [String: Int] = [:]
+        for limit in limits ?? [] {
+            guard limit.kind == "weekly_scoped",
+                  let label = limit.scope?.model?.displayName, !label.isEmpty,
+                  let percent = limit.percent else { continue }
+            if sevenDaySonnet != nil && label == "Sonnet" { continue }
+            let window = ScopedModelWindow(label: label,
+                                           window: UsageWindow(utilization: percent, resetsAt: limit.resetsAt))
+            if let idx = indexByLabel[label] {
+                if percent > result[idx].window.utilization { result[idx] = window }
+            } else {
+                indexByLabel[label] = result.count
+                result.append(window)
+            }
+        }
+        return result
+    }
+}
+
+/// A single entry in the usage response's `limits` array.
+struct UsageLimit: Codable, Sendable {
+    let kind: String
+    let percent: Double?
+    let resetsAt: String?
+    let scope: UsageLimitScope?
+
+    enum CodingKeys: String, CodingKey {
+        case kind, percent, scope
+        case resetsAt = "resets_at"
+    }
+}
+
+/// The `scope` object of a `weekly_scoped` limit entry.
+struct UsageLimitScope: Codable, Sendable {
+    let model: UsageLimitModel?
+}
+
+/// The model a scoped limit applies to.
+struct UsageLimitModel: Codable, Sendable {
+    let displayName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case displayName = "display_name"
+    }
+}
+
+/// Per-element fail-soft wrapper: a malformed `limits` entry decodes to nil instead of
+/// failing the whole array.
+private struct FailableLimit: Decodable {
+    let limit: UsageLimit?
+
+    init(from decoder: Decoder) {
+        limit = try? UsageLimit(from: decoder)
+    }
+}
+
+/// A model-scoped weekly limit surfaced as a displayable usage window.
+struct ScopedModelWindow: Sendable {
+    /// The model's display name as reported by the API (e.g. "Fable").
+    let label: String
+    let window: UsageWindow
+    /// History-bucket key for pace tracking, distinct from the legacy window keys.
+    var paceKey: String { "scoped." + label }
 }
 
 /// A single rate-limit window returned by the usage API.
@@ -429,6 +514,12 @@ struct AccountInfo: Codable, Sendable {
         if caps.contains("claude_pro") || tier.contains("_pro") { return "Pro" }
         if caps.contains("claude_team")       { return "Team" }
         if caps.contains("claude_enterprise") { return "Enterprise" }
+        // Team/Enterprise orgs report the "raven" capability (tier "default_raven");
+        // raven_type distinguishes the plan ("team" observed live, "enterprise" assumed).
+        if caps.contains("raven") {
+            if org.ravenType?.contains("enterprise") == true { return "Enterprise" }
+            return "Team"
+        }
         return nil
     }
 }
@@ -441,10 +532,13 @@ struct AccountMembership: Codable, Sendable {
 struct AccountOrganization: Codable, Sendable {
     let capabilities: [String]?
     let rateLimitTier: String?
+    /// Plan flavor for "raven" (Team/Enterprise) orgs, e.g. "team".
+    let ravenType: String?
 
     enum CodingKeys: String, CodingKey {
         case capabilities
         case rateLimitTier = "rate_limit_tier"
+        case ravenType = "raven_type"
     }
 }
 
@@ -609,8 +703,13 @@ enum AccountStore {
     static let activeAccountIDKey = "activeAccountID"
 
     static func loadAccounts(from defaults: UserDefaults = .standard) -> [Account] {
-        guard let data = defaults.data(forKey: accountsKey),
-              let decoded = try? JSONDecoder().decode([Account].self, from: data) else { return [] }
+        guard let data = defaults.data(forKey: accountsKey) else { return [] }
+        guard let decoded = try? JSONDecoder().decode([Account].self, from: data) else {
+            // Distinguish corruption from a fresh install: the next save overwrites the
+            // blob permanently, so this line is the only trace of the lost roster.
+            AppLogger.shared.error("accounts decode failed — starting with empty roster")
+            return []
+        }
         return decoded
     }
 

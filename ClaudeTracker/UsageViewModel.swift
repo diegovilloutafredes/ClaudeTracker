@@ -131,9 +131,10 @@ final class UsageViewModel {
     var showChartsTab: Bool = true {
         didSet { guard showChartsTab != oldValue else { return }; UserDefaults.standard.set(showChartsTab, forKey: PrefKey.showChartsTab) }
     }
-    /// Whether the Sonnet 7-day sub-window is shown as a third progress bar in the popover.
-    var showSonnetWindow: Bool = true {
-        didSet { guard showSonnetWindow != oldValue else { return }; UserDefaults.standard.set(showSonnetWindow, forKey: PrefKey.showSonnetWindow) }
+    /// Whether per-model usage rows (legacy Sonnet sub-window + model-scoped limits such as
+    /// Fable) are shown as extra progress bars in the popover.
+    var showModelWindows: Bool = true {
+        didSet { guard showModelWindows != oldValue else { return }; UserDefaults.standard.set(showModelWindows, forKey: PrefKey.showModelWindows) }
     }
     /// Whether absolute reset times render as 24-hour (true) or AM/PM (false).
     var use24HourTime: Bool = false {
@@ -254,7 +255,7 @@ final class UsageViewModel {
         popupScale = savedPopupScale > 0 ? savedPopupScale : 1.0
 
         showChartsTab = UserDefaults.standard.object(forKey: PrefKey.showChartsTab) as? Bool ?? true
-        showSonnetWindow = UserDefaults.standard.object(forKey: PrefKey.showSonnetWindow) as? Bool ?? true
+        showModelWindows = UserDefaults.standard.object(forKey: PrefKey.showModelWindows) as? Bool ?? true
         if let saved24h = UserDefaults.standard.object(forKey: PrefKey.use24HourTime) as? Bool {
             use24HourTime = saved24h
         } else {

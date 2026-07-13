@@ -100,6 +100,17 @@
         }
       }
     },
+    "7-Day %@": {
+      "comment": "Row title for a model-scoped weekly limit; the placeholder is the model's display name reported by the API (e.g. Fable)",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 7 días"
+          }
+        }
+      }
+    },
     "7-Day Sonnet": {
       "comment": "Sonnet 7-day sub-window name shown as a third progress bar in the popover",
       "localizations": {
@@ -889,17 +900,6 @@
         }
       }
     },
-    "Show Sonnet usage": {
-      "comment": "Settings toggle to show or hide the Sonnet 7-day sub-window row in the Usage tab",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar uso de Sonnet"
-          }
-        }
-      }
-    },
     "Show charts tab": {
       "comment": "Toggle to show or hide the Charts tab in popover",
       "localizations": {
@@ -929,6 +929,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mostrar indicador de ritmo"
+          }
+        }
+      }
+    },
+    "Show per-model usage": {
+      "comment": "Settings toggle to show or hide the per-model usage rows (legacy Sonnet sub-window and model-scoped limits such as Fable) in the Usage tab",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar uso por modelo"
           }
         }
       }
@@ -1322,6 +1333,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "· lleno en %dm"
+          }
+        }
+      }
+    },
+    "~%dh": {
+      "comment": "Approximate hours, interpolated into the pace outlook messages (e.g. 'Will hit limit ~2h before reset')",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~%d h"
+          }
+        }
+      }
+    },
+    "~%dm": {
+      "comment": "Approximate minutes, interpolated into the pace outlook messages (e.g. 'Will hit limit ~5m before reset')",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~%d min"
           }
         }
       }

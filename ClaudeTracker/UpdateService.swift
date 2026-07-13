@@ -18,7 +18,12 @@ func parseGitHubReleases(_ data: Data, currentVersion: String) -> (update: Updat
         return fmt.date(from: s)
     }
 
-    guard let latest = releases.first,
+    // Pre-releases and drafts must never reach auto-update users — a beta published
+    // for testing would otherwise install itself into /Applications within a day.
+    let stable = releases.filter {
+        ($0["prerelease"] as? Bool) != true && ($0["draft"] as? Bool) != true
+    }
+    guard let latest = stable.first,
           let tag = latest["tag_name"] as? String,
           let htmlUrl = latest["html_url"] as? String,
           let releaseUrl = URL(string: htmlUrl) else { return (nil, dates) }
@@ -224,9 +229,11 @@ final class UpdateService {
             duration: 12,
             permanent: false
         )
-        Task {
+        Task { [weak self] in
             try? await Task.sleep(for: .seconds(10))
-            downloadAndInstall()
+            // Re-check: the user may have flipped auto-install off during the countdown.
+            guard let self, self.autoUpdate else { return }
+            self.downloadAndInstall()
         }
     }
 

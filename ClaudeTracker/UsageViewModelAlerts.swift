@@ -122,6 +122,9 @@ extension UsageViewModel {
         append(key: "five_hour",        utilization: response.fiveHour?.utilization)
         append(key: "seven_day",         utilization: response.sevenDay?.utilization)
         append(key: "seven_day_sonnet",  utilization: response.sevenDaySonnet?.utilization)
+        for scoped in response.scopedModelWindows {
+            append(key: scoped.paceKey, utilization: scoped.window.utilization)
+        }
     }
 
     /// Fires a pace alert through all enabled channels when a watched window is on track to
@@ -132,15 +135,23 @@ extension UsageViewModel {
         let isActive = (accountID == activeAccountID)
 
         guard notifyPace, isActive else {
+            // Clearing paceWarned alone would leave a permanent toast on screen and
+            // duplicate it on re-enable — dismiss and forget the toasts too.
+            dismissPaceToasts(for: accountID)
             statesByAccount[accountID, default: .init()].paceWarned.removeAll()
             return
         }
 
-        let candidates: [(key: String, name: String, watched: Bool)] = [
+        var candidates: [(key: String, name: String, watched: Bool)] = [
             ("five_hour",        String(localized: "5-Hour Window"), notify5Hour),
             ("seven_day",        String(localized: "7-Day Window"),  notify7Day),
-            ("seven_day_sonnet", String(localized: "7-Day Sonnet"),  notify7Day && showSonnetWindow),
+            ("seven_day_sonnet", String(localized: "7-Day Sonnet"),  notify7Day && showModelWindows),
         ]
+        for scoped in response.scopedModelWindows {
+            candidates.append((scoped.paceKey,
+                               String(format: String(localized: "7-Day %@"), scoped.label),
+                               notify7Day && showModelWindows))
+        }
 
         for (key, name, watched) in candidates {
             guard watched else { continue }
@@ -167,6 +178,18 @@ extension UsageViewModel {
             }
             statesByAccount[accountID] = s
         }
+
+        // A scoped toast whose limit entry vanished from the response never reaches the
+        // improvement branch above (its key drops out of the candidates) — sweep it here.
+        var s = statesByAccount[accountID] ?? .init()
+        let candidateKeys = Set(candidates.map(\.key))
+        for key in s.paceToastIDs.keys where key.hasPrefix("scoped.") && !candidateKeys.contains(key) {
+            if let tid = s.paceToastIDs.removeValue(forKey: key) {
+                ToastWindowController.shared.dismiss(id: tid)
+            }
+            s.paceWarned.remove(key)
+        }
+        statesByAccount[accountID] = s
     }
 
     /// Returns the current consumption rate and projected time to full for a window of the

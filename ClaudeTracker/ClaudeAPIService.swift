@@ -142,6 +142,15 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     private func cancelWaiter(_ id: UUID) {
         readyWaiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
+        // The last cancelled waiter must release the load-in-flight flag and the shared
+        // timeout: `didFinish` skips `checkPageReady` when no waiters exist, so a stale
+        // `isLoadingPage` would park the next caller until the 30 s timeout fires a
+        // spurious "Page load timed out".
+        if readyWaiters.isEmpty {
+            isLoadingPage = false
+            readinessTimeoutTask?.cancel()
+            readinessTimeoutTask = nil
+        }
     }
 
     /// One shared timeout per load attempt; armed when the first waiter queues up,

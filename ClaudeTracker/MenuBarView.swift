@@ -5,7 +5,7 @@ struct MenuBarView: View {
     var viewModel: UsageViewModel
     @Environment(\.openSettings) private var openSettings
 
-    @AppStorage("selectedTab") private var selectedTab = 0
+    @AppStorage(PrefKey.selectedTab) private var selectedTab = 0
     @State private var contentHeight: CGFloat = 0
     private let baseWidth: CGFloat = 312
     private var s: CGFloat { CGFloat(viewModel.popupScale) }
@@ -213,24 +213,20 @@ struct MenuBarView: View {
 
         VStack(alignment: .leading, spacing: 17 * s) {
             ForEach(usage.allWindows, id: \.0) { windowKey, window in
-                windowRow(windowKey: windowKey, window: window)
+                windowRow(title: windowKey.label, window: window,
+                          paceKey: windowKey.rawValue,
+                          includeResetDate: windowKey == .sevenDay)
             }
-            if viewModel.showSonnetWindow, let sonnet = usage.sevenDaySonnet {
-                let sonnetIsStale = viewModel.isWindowStale(sonnet)
-                let suppressSonnetPace = sonnet.utilization >= 100 || sonnetIsStale
-                let sonnetPace = (viewModel.showPace && !suppressSonnetPace)
-                    ? viewModel.pace(for: "seven_day_sonnet") : nil
-                UsageWindowView(
-                    title: String(localized: "7-Day Sonnet"),
-                    window: sonnet,
-                    paceRate: sonnetPace?.rate,
-                    projectedHours: sonnetPace?.projectedHours,
-                    scale: s,
-                    paceRateUnit: viewModel.paceRateUnit,
-                    isStale: sonnetIsStale,
-                    use24Hour: viewModel.use24HourTime,
-                    includeResetDate: true
-                )
+            if viewModel.showModelWindows, let sonnet = usage.sevenDaySonnet {
+                windowRow(title: String(localized: "7-Day Sonnet"), window: sonnet,
+                          paceKey: "seven_day_sonnet", includeResetDate: true)
+            }
+            if viewModel.showModelWindows {
+                ForEach(usage.scopedModelWindows, id: \.label) { scoped in
+                    windowRow(title: String(format: String(localized: "7-Day %@"), scoped.label),
+                              window: scoped.window,
+                              paceKey: scoped.paceKey, includeResetDate: true)
+                }
             }
         }
 
@@ -266,19 +262,23 @@ struct MenuBarView: View {
             Text("Extra Usage")
                 .font(sf(12, .bold))
             if let used = extra.usedCredits, let limit = extra.monthlyLimit {
-                Text(String(format: "$%.2f / $%.2f", used, limit))
+                // Locale-aware currency (extra usage is USD-denominated).
+                Text(verbatim: "\(used.formatted(.currency(code: "USD"))) / \(limit.formatted(.currency(code: "USD")))")
                     .font(sf(11))
                     .foregroundStyle(.secondary)
             }
         }
     }
 
-    private func windowRow(windowKey: MenuBarWindow, window: UsageWindow) -> some View {
+    /// Single pipeline for every usage row (standard windows, legacy Sonnet, scoped
+    /// models): stale check, ≥100 %/stale pace suppression, then the row view.
+    private func windowRow(title: String, window: UsageWindow,
+                           paceKey: String, includeResetDate: Bool) -> some View {
         let windowIsStale = viewModel.isWindowStale(window)
         let suppressPace = window.utilization >= 100 || windowIsStale
-        let pace = (viewModel.showPace && !suppressPace) ? viewModel.pace(for: windowKey.rawValue) : nil
+        let pace = (viewModel.showPace && !suppressPace) ? viewModel.pace(for: paceKey) : nil
         return UsageWindowView(
-            title: windowKey.label,
+            title: title,
             window: window,
             paceRate: pace?.rate,
             projectedHours: pace?.projectedHours,
@@ -286,7 +286,7 @@ struct MenuBarView: View {
             paceRateUnit: viewModel.paceRateUnit,
             isStale: windowIsStale,
             use24Hour: viewModel.use24HourTime,
-            includeResetDate: windowKey == .sevenDay
+            includeResetDate: includeResetDate
         )
     }
 
@@ -301,7 +301,8 @@ struct MenuBarView: View {
                 // when it's already open. Manually find the existing Settings NSWindow and
                 // order it front so re-clicking the button reliably surfaces it.
                 DispatchQueue.main.async {
-                    if let win = NSApp.windows.first(where: { $0.title.hasPrefix("Settings") }) {
+                    // Match by identifier, not title — the title is localized ("Ajustes · v…").
+                    if let win = NSApp.windows.first(where: { $0.identifier == settingsWindowIdentifier }) {
                         NSApp.setActivationPolicy(.regular)
                         win.makeKeyAndOrderFront(nil)
                         NSApp.activate(ignoringOtherApps: true)

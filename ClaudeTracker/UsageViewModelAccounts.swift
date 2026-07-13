@@ -52,6 +52,16 @@ extension UsageViewModel {
         invalidateMenuBarImage()
     }
 
+    /// Dismisses any on-screen pace toasts owned by the given account — an outgoing
+    /// account's toasts must not linger over the incoming account's data.
+    func dismissPaceToasts(for id: UUID?) {
+        guard let id, let state = statesByAccount[id] else { return }
+        for tid in state.paceToastIDs.values {
+            ToastWindowController.shared.dismiss(id: tid)
+        }
+        statesByAccount[id]?.paceToastIDs.removeAll()
+    }
+
     /// Called by the login flow once a session cookie has been detected for the active account.
     func handleSessionFound(_ key: String) {
         guard let id = activeAccountID else { return }
@@ -88,14 +98,7 @@ extension UsageViewModel {
         guard id != activeAccountID, let acct = accounts.first(where: { $0.id == id }) else { return }
 
         cancelInFlightWork()
-        // Dismiss any active pace toasts owned by the outgoing account.
-        if let outgoingID = activeAccountID,
-           let outgoing = statesByAccount[outgoingID] {
-            for tid in outgoing.paceToastIDs.values {
-                ToastWindowController.shared.dismiss(id: tid)
-            }
-            statesByAccount[outgoingID]?.paceToastIDs.removeAll()
-        }
+        dismissPaceToasts(for: activeAccountID)
         activeAccountID = id
         AccountStore.saveActiveID(id)
         buildActiveService(for: acct)
@@ -117,6 +120,7 @@ extension UsageViewModel {
         // Mark the new one active so the freshly built service is the live one.
         // Cancel any in-flight work tied to the previous account.
         cancelInFlightWork()
+        dismissPaceToasts(for: activeAccountID)
         activeAccountID = acct.id
         AccountStore.saveActiveID(acct.id)
         buildActiveService(for: acct)
@@ -224,8 +228,10 @@ extension UsageViewModel {
         let copiedCookies = await store.httpCookieStore.allCookies()
         let migrated = copiedCookies.contains { $0.name == "sessionKey" && $0.isClaudeDomain }
         guard migrated else {
-            UserDefaults.standard.set(1, forKey: PrefKey.accountsMigrationVersion)
-            AppLogger.shared.error("migration: cookie copy failed, falling back to empty roster")
+            // Do NOT set the migration version: the copy is idempotent, so a transient
+            // failure (e.g. the store initializing slowly) is retried next launch instead
+            // of permanently abandoning the legacy session — same contract as SandboxMigration.
+            AppLogger.shared.error("migration: cookie copy failed — will retry next launch")
             return
         }
 
