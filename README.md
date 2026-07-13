@@ -9,7 +9,7 @@ A macOS menu bar app that shows your [Claude AI](https://claude.ai) usage limits
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/popover-usage.png" width="280" alt="Usage popover showing 5-Hour, 7-Day, and Sonnet windows with pace indicators">
+  <img src="docs/screenshots/popover-usage.png" width="280" alt="Usage popover showing 5-Hour, 7-Day, and per-model windows with pace indicators">
   &nbsp;&nbsp;&nbsp;&nbsp;
   <img src="docs/screenshots/popover-charts.png" width="280" alt="Charts tab with historical utilization, pace, and forecast charts">
 </p>
