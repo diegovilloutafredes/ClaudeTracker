@@ -105,7 +105,8 @@ final class UpdateService {
     var availableUpdate: UpdateInfo? = nil
     var isCheckingForUpdates = false
     var updateDownloadState: UpdateDownloadState = .idle
-    var autoUpdate: Bool = false {
+    // Default ON — installs stay current with zero interaction; opt out in Settings.
+    var autoUpdate: Bool = true {
         didSet {
             guard autoUpdate != oldValue else { return }
             UserDefaults.standard.set(autoUpdate, forKey: PrefKey.autoUpdate)
@@ -135,7 +136,7 @@ final class UpdateService {
         let savedCheckInterval = UserDefaults.standard.double(forKey: PrefKey.updateCheckInterval)
         if savedCheckInterval >= 4 * 3600 { nextCheckInterval = savedCheckInterval }
         // Set autoUpdate last so its didSet fires with nextCheckInterval already correct.
-        autoUpdate = UserDefaults.standard.object(forKey: PrefKey.autoUpdate) as? Bool ?? false
+        autoUpdate = UserDefaults.standard.object(forKey: PrefKey.autoUpdate) as? Bool ?? true
         schedulePeriodicUpdateCheck()
         Task { try? await Task.sleep(for: .seconds(10)); checkForUpdates() }
     }

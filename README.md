@@ -32,10 +32,10 @@ A macOS menu bar app that shows your [Claude AI](https://claude.ai) usage limits
 - **Stale data detection** — if a usage window reset while the Mac was asleep, the app detects it on wake and refreshes instead of showing stale high utilization
 - Configurable notifications when a window resets: toast near the menu bar, sound, and system banner
   - Toast duration slider (1-30 s) or permanent mode until dismissed
-- **Auto-update** — periodically checks GitHub Releases on an adaptive schedule (based on historical release cadence), checks again on wake from sleep, and auto-installs with a countdown if enabled; shows a banner in the popover and a toast when a new version is found
+- **Auto-update** — periodically checks GitHub Releases on an adaptive schedule (based on historical release cadence), checks again on wake from sleep, and auto-installs new versions after a short countdown (**on by default** — opt out in Settings); shows a banner in the popover and a toast when a new version is found
 - **Popup scale** — slider (75–150%) to resize the popover proportionally
 - **Diagnostic logs** — rolling file log at `~/Library/Logs/ClaudeTracker/`; open directly from Settings
-- Configurable refresh interval (1-60 seconds, default 5 s)
+- Adaptive polling — the refresh rate speeds up automatically as usage or pace climbs; nothing to configure
 - No API key required — uses your existing claude.ai browser session
 
 ## Requirements
@@ -47,20 +47,34 @@ A macOS menu bar app that shows your [Claude AI](https://claude.ai) usage limits
 
 ## Installation
 
-### Download a release
+### Quick install (recommended)
+
+One command — downloads the latest release, installs to `/Applications`, and launches the app:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/diegovilloutafredes/ClaudeTracker/main/scripts/install.sh | bash
+```
+
+No Gatekeeper prompts: `curl` downloads are never quarantined, so this works even though the app is not yet signed with a Developer ID certificate. Once installed, the app keeps itself up to date automatically (see [Updates](#updates)).
+
+### Manual download
 
 Go to [Releases](https://github.com/diegovilloutafredes/ClaudeTracker/releases) and download the latest version. Two formats are provided:
 
-**DMG (recommended)**
+**DMG**
 1. Open `ClaudeTracker.dmg`
 2. Drag `ClaudeTracker.app` to the `/Applications` shortcut in the window
 3. Launch from Applications
 
-**ZIP (fallback)**
+**ZIP**
 1. Download `ClaudeTracker.zip` and unzip it
-2. Double-click `install.command` — it copies the app to `/Applications`, strips the Gatekeeper quarantine flag, and launches it
+2. Double-click `install.command` — it copies the app to `/Applications`, strips the Gatekeeper quarantine flag, and launches it. If macOS blocks the script itself, run `bash install.command` from Terminal instead.
 
-> Because the app is not yet signed with a Developer ID certificate, macOS may block the first launch. If that happens, right-click the app and choose **Open**, or run `xattr -d com.apple.quarantine /Applications/ClaudeTracker.app`.
+> **Gatekeeper note:** browser downloads are quarantined, and the app is not yet Developer ID-signed, so macOS blocks the first launch of a manually downloaded copy. On macOS 15 Sequoia and later, right-click → Open no longer bypasses this — instead, attempt to open the app once, then go to **System Settings → Privacy & Security** and click **Open Anyway**. Alternatively, clear the flag directly: `xattr -d com.apple.quarantine /Applications/ClaudeTracker.app`. The quick-install script above avoids all of this.
+
+### Updates
+
+Nothing to do — the app checks GitHub Releases on launch, on wake from sleep, and on an adaptive schedule, and installs new versions automatically (a toast shows a ~10 s countdown first). To review updates manually instead, turn off **Auto-install updates** in Settings; you'll then get a notification and an **Install** button in the popover when a new version is available.
 
 ### Build from source
 
