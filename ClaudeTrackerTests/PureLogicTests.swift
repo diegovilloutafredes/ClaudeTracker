@@ -401,6 +401,97 @@ final class APIFixtureTests: XCTestCase {
         XCTAssertNil(r.sevenDaySonnet)
     }
 
+    func testExtraUsageDecodesDisabledState() throws {
+        // Mirrors a live Team payload where usage credits ran out: is_enabled flips false
+        // but disabled_reason/credits_ever_enabled say why. Decode-only — the popover
+        // hides the section while is_enabled is false (a disabled-state row was tried
+        // and deliberately removed as noise).
+        let json = """
+        {
+          "extra_usage": {"is_enabled": false, "monthly_limit": null, "used_credits": null,
+                          "utilization": null, "currency": "USD", "decimal_places": 2,
+                          "disabled_reason": "out_of_credits", "user_disabled": false,
+                          "spend_limit_reached": false, "credits_ever_enabled": true,
+                          "daily": null, "weekly": null}
+        }
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertEqual(r.extraUsage?.isEnabled, false)
+        XCTAssertEqual(r.extraUsage?.disabledReason, "out_of_credits")
+        XCTAssertEqual(r.extraUsage?.userDisabled, false)
+        XCTAssertEqual(r.extraUsage?.creditsEverEnabled, true)
+    }
+
+    func testExtraUsageToleratesWrongTypedOptionalField() throws {
+        // Per-field lenient decode: a shape change in a non-load-bearing field must not
+        // nil the whole extraUsage (which would silently hide the section).
+        let json = """
+        {
+          "extra_usage": {"is_enabled": true, "monthly_limit": 50, "used_credits": 12.5,
+                          "utilization": 25, "disabled_reason": {"code": 7}}
+        }
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertEqual(r.extraUsage?.isEnabled, true)
+        XCTAssertEqual(r.extraUsage?.usedCredits, 12.5)
+        XCTAssertNil(r.extraUsage?.disabledReason)
+    }
+
+    func testUsageLimitToleratesWrongTypedOptionalField() throws {
+        // A wrong-typed severity/is_active must degrade that field to nil, not make
+        // FailableLimit drop the whole entry (losing the model's row and pace bucket).
+        let json = """
+        {
+          "limits": [
+            {"kind": "weekly_scoped", "percent": 8, "severity": 3, "is_active": "yes",
+             "resets_at": "2026-08-17T21:00:00Z",
+             "scope": {"model": {"id": null, "display_name": "Fable"}, "surface": null}}
+          ]
+        }
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertEqual(r.limits?.count, 1)
+        XCTAssertNil(r.limits?.first?.severity)
+        XCTAssertNil(r.limits?.first?.isActive)
+        XCTAssertEqual(r.scopedModelWindows.first?.label, "Fable")
+    }
+
+    // MARK: - Severity log signature
+
+    func testAbnormalSeveritiesEmptyWhenAllNormal() throws {
+        let json = """
+        {"limits": [
+          {"kind": "session", "percent": 4, "severity": "normal", "is_active": true},
+          {"kind": "weekly_all", "percent": 4}
+        ]}
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertEqual(abnormalSeverities(r.limits), "")
+        XCTAssertEqual(abnormalSeverities(nil), "")
+    }
+
+    func testAbnormalSeveritiesLabelsScopedModelsAndSortsOrderIndependently() throws {
+        let jsonA = """
+        {"limits": [
+          {"kind": "weekly_scoped", "percent": 90, "severity": "warning", "is_active": true,
+           "scope": {"model": {"display_name": "Fable"}}},
+          {"kind": "session", "percent": 99, "severity": "exceeded", "is_active": false}
+        ]}
+        """
+        let jsonB = """
+        {"limits": [
+          {"kind": "session", "percent": 99, "severity": "exceeded", "is_active": false},
+          {"kind": "weekly_scoped", "percent": 90, "severity": "warning", "is_active": true,
+           "scope": {"model": {"display_name": "Fable"}}}
+        ]}
+        """
+        let a = abnormalSeverities(try decode(UsageResponse.self, jsonA).limits)
+        let b = abnormalSeverities(try decode(UsageResponse.self, jsonB).limits)
+        XCTAssertEqual(a, "session=exceeded(active=false) weekly_scoped(Fable)=warning(active=true)")
+        // A server-side reorder of the same entries must not read as a transition.
+        XCTAssertEqual(a, b)
+    }
+
     // MARK: - Limits array (model-scoped windows)
 
     func testUsageResponseDecodesScopedModelLimits() throws {
@@ -424,6 +515,9 @@ final class APIFixtureTests: XCTestCase {
         """
         let r = try decode(UsageResponse.self, json)
         XCTAssertEqual(r.limits?.count, 3)
+        XCTAssertEqual(r.limits?.first?.severity, "normal")
+        XCTAssertEqual(r.limits?.first?.isActive, true)
+        XCTAssertEqual(r.limits?.last?.isActive, false)
         let scoped = r.scopedModelWindows
         XCTAssertEqual(scoped.count, 1)
         XCTAssertEqual(scoped.first?.label, "Fable")
@@ -597,6 +691,20 @@ final class APIFixtureTests: XCTestCase {
         """
         let info = try decode(AccountInfo.self, json)
         XCTAssertEqual(info.subscriptionLabel, "Team")
+    }
+
+    func testAccountInfoDerivesFreeLabelFromBaseTier() throws {
+        // Mirrors a live free-plan payload: bare "chat" capability on the base tier.
+        let json = """
+        {
+          "email_address": "d@example.com",
+          "memberships": [
+            {"organization": {"capabilities": ["chat"], "rate_limit_tier": "default_claude_ai"}}
+          ]
+        }
+        """
+        let info = try decode(AccountInfo.self, json)
+        XCTAssertEqual(info.subscriptionLabel, "Free")
     }
 
     func testAccountInfoDecodesWithoutMemberships() throws {

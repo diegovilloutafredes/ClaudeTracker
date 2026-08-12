@@ -311,6 +311,14 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
             return .unauthorized
         }
         if msg.contains("HTTP_429") { return .rateLimited }
+        if msg.contains("HTTP_404") {
+            // The cached org may no longer exist for this user (membership change,
+            // server-side migration) — drop the memo so the next fetch re-resolves
+            // the org list instead of failing on the stale UUID until app restart.
+            cachedOrgId = nil
+            cachedOrgName = nil
+            return .httpError(msg)
+        }
         if msg.contains("HTTP_") { return .httpError(msg) }
         return .networkError(msg)
     }
@@ -354,12 +362,19 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        // A failed navigation leaves the page broken; without resetting readiness,
+        // ensureReady keeps short-circuiting and every fetch runs against the dead
+        // page until a 401 or a WebKit process crash happens to clear the flag.
+        isPageReady = false
+        isLoadingPage = false
         failAllWaiters(with: APIError.networkError(error.localizedDescription))
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         // NSURLErrorCancelled fires on every redirect — safe to ignore.
         if (error as NSError).code == NSURLErrorCancelled { return }
+        isPageReady = false
+        isLoadingPage = false
         failAllWaiters(with: APIError.networkError(error.localizedDescription))
     }
 

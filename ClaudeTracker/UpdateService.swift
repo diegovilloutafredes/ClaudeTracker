@@ -41,7 +41,9 @@ func parseGitHubReleases(_ data: Data, currentVersion: String) -> (update: Updat
 ///
 /// Stages the copy as a sibling of `dest` (same volume), moves the old item aside,
 /// swaps the staged copy in, and only then deletes the old item — so a failure at any
-/// step leaves either the original or the new item at `dest`, never nothing.
+/// step leaves either the original or the new item at `dest`. In the double-failure
+/// case (swap fails AND the rollback fails), `dest` can end up empty; the staged copy
+/// is then deliberately left on disk as the only surviving intact bundle.
 func atomicReplaceItem(at dest: URL, with source: URL) throws {
     let fm = FileManager.default
     let parent = dest.deletingLastPathComponent()
@@ -67,8 +69,16 @@ func atomicReplaceItem(at dest: URL, with source: URL) throws {
     do {
         try fm.moveItem(at: staging, to: dest)
     } catch {
-        if hadExisting { try? fm.moveItem(at: backup, to: dest) }
-        try? fm.removeItem(at: staging)
+        if hadExisting, (try? fm.moveItem(at: backup, to: dest)) == nil {
+            // Rollback failed too — dest is empty. Retry the staged copy once; if that
+            // also fails, the staged copy is the only intact bundle left.
+            try? fm.moveItem(at: staging, to: dest)
+        }
+        // The staged copy is disposable only once dest is occupied again (or never
+        // was); deleting it while dest is empty would leave nothing at all.
+        if !hadExisting || fm.fileExists(atPath: dest.path) {
+            try? fm.removeItem(at: staging)
+        }
         throw error
     }
 
@@ -330,6 +340,11 @@ final class UpdateService {
             } catch {
                 AppLogger.shared.error("auto-update failed: \(error)")
                 updateDownloadState = .failed(error.localizedDescription)
+                // Un-mark the version as notified so the next periodic/wake check retries
+                // the install — otherwise one transient failure permanently degrades this
+                // release to "find the Install button in Settings".
+                lastNotifiedUpdateVersion = ""
+                UserDefaults.standard.removeObject(forKey: PrefKey.lastNotifiedUpdateVersion)
             }
         }
     }

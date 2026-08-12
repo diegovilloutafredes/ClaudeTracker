@@ -374,11 +374,50 @@ struct UsageLimit: Codable, Sendable {
     let percent: Double?
     let resetsAt: String?
     let scope: UsageLimitScope?
+    /// Server-side urgency; only "normal" observed so far. Surfaced only in the
+    /// severity log until non-normal values and their semantics are seen live.
+    let severity: String?
+    /// Observed live but semantics unclear: a dormant 0% window can be `true` while a
+    /// running one is `false` — it is NOT "currently binding". Decoded for the severity
+    /// log (included only alongside a non-"normal" severity), never displayed.
+    let isActive: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case kind, percent, scope
+        case kind, percent, scope, severity
         case resetsAt = "resets_at"
+        case isActive = "is_active"
     }
+
+    /// Per-field lenient decode: only `kind` is load-bearing. A wrong-typed value in any
+    /// other field (this API has changed shape before) must degrade that one field to
+    /// nil, not throw and make `FailableLimit` drop the whole entry — which would
+    /// silently remove a model's row and pace bucket from the UI.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decode(String.self, forKey: .kind)
+        percent = (try? c.decodeIfPresent(Double.self, forKey: .percent)) ?? nil
+        resetsAt = (try? c.decodeIfPresent(String.self, forKey: .resetsAt)) ?? nil
+        scope = (try? c.decodeIfPresent(UsageLimitScope.self, forKey: .scope)) ?? nil
+        severity = (try? c.decodeIfPresent(String.self, forKey: .severity)) ?? nil
+        isActive = (try? c.decodeIfPresent(Bool.self, forKey: .isActive)) ?? nil
+    }
+}
+
+/// Signature of the non-"normal" entries in a `limits` array, for the severity log —
+/// e.g. `"weekly_scoped(Fable)=warning(active=true)"`. Scoped entries carry the model
+/// name (two abnormal scoped limits would otherwise be indistinguishable), and the
+/// fragments are sorted so a server-side reorder of the same entries never looks like
+/// a transition. Empty when every entry is "normal".
+func abnormalSeverities(_ limits: [UsageLimit]?) -> String {
+    (limits ?? [])
+        .filter { ($0.severity ?? "normal") != "normal" }
+        .map { limit in
+            let model = limit.scope?.model?.displayName ?? ""
+            let kind = model.isEmpty ? limit.kind : "\(limit.kind)(\(model))"
+            return "\(kind)=\(limit.severity ?? "")(active=\(limit.isActive ?? false))"
+        }
+        .sorted()
+        .joined(separator: " ")
 }
 
 /// The `scope` object of a `weekly_scoped` limit entry.
@@ -468,12 +507,37 @@ struct ExtraUsage: Codable, Sendable {
     let monthlyLimit: Double?
     let usedCredits: Double?
     let utilization: Double?
+    /// Why extra usage is off, e.g. "out_of_credits". Only meaningful when `isEnabled` is false.
+    let disabledReason: String?
+    /// True when the user turned extra usage off themselves (as opposed to running out).
+    let userDisabled: Bool?
+    /// True when the account has ever had usage credits — distinguishes "ran out"
+    /// from "never opted in", which should stay invisible.
+    let creditsEverEnabled: Bool?
 
     enum CodingKeys: String, CodingKey {
         case isEnabled = "is_enabled"
         case monthlyLimit = "monthly_limit"
         case usedCredits = "used_credits"
         case utilization
+        case disabledReason = "disabled_reason"
+        case userDisabled = "user_disabled"
+        case creditsEverEnabled = "credits_ever_enabled"
+    }
+
+    /// Per-field lenient decode: only `isEnabled` is load-bearing. A wrong-typed value
+    /// in any other field must not throw and nil the whole `extraUsage` — that would
+    /// silently hide the extra-usage section for a payload that still carries
+    /// `is_enabled`/`used_credits` intact.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        isEnabled = try c.decode(Bool.self, forKey: .isEnabled)
+        monthlyLimit = (try? c.decodeIfPresent(Double.self, forKey: .monthlyLimit)) ?? nil
+        usedCredits = (try? c.decodeIfPresent(Double.self, forKey: .usedCredits)) ?? nil
+        utilization = (try? c.decodeIfPresent(Double.self, forKey: .utilization)) ?? nil
+        disabledReason = (try? c.decodeIfPresent(String.self, forKey: .disabledReason)) ?? nil
+        userDisabled = (try? c.decodeIfPresent(Bool.self, forKey: .userDisabled)) ?? nil
+        creditsEverEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .creditsEverEnabled)) ?? nil
     }
 }
 
@@ -502,7 +566,7 @@ struct AccountInfo: Codable, Sendable {
     ///
     /// The API exposes no dedicated tier field. The tier is inferred by combining
     /// the capability set (e.g. `"claude_max"`) with the tier slug string
-    /// (e.g. `"default_claude_max_5x"`). Returns `nil` for unrecognised or free accounts.
+    /// (e.g. `"default_claude_max_5x"`). Returns `nil` for unrecognised accounts.
     var subscriptionLabel: String? {
         guard let org = memberships?.first?.organization else { return nil }
         let caps = Set(org.capabilities ?? [])
@@ -521,6 +585,12 @@ struct AccountInfo: Codable, Sendable {
             if org.ravenType?.contains("enterprise") == true { return "Enterprise" }
             return "Team"
         }
+        // Free accounts: "chat" capability on the base tier. Keyed on these two fields
+        // (not rate_limit_upsell, which differs between /api/account and
+        // /api/organizations for the same org). `.contains` like every branch above —
+        // exact set equality would silently kill the badge if free accounts ever gain
+        // a second capability.
+        if caps.contains("chat") && tier == "default_claude_ai" { return "Free" }
         return nil
     }
 }
@@ -690,6 +760,10 @@ struct AccountState: Sendable {
     var usageHistory: [UsageDataPoint] = []
     /// Increments on every failed fetch; drives backoff in `scheduleNextPoll()`.
     var consecutiveErrors: Int = 0
+    /// Counts only consecutive 401s — kept separate from `consecutiveErrors` so a
+    /// transient network/decode error right before the first 401 can't skip the
+    /// documented one-poll silent retry and force a spurious re-login.
+    var consecutive401s: Int = 0
     /// True after a 401 retry confirms the session is no longer valid; drives the empty-state
     /// "sign in again" UX without forcing the user to remove and re-add the account.
     var sessionExpired: Bool = false
@@ -706,9 +780,11 @@ enum AccountStore {
     static func loadAccounts(from defaults: UserDefaults = .standard) -> [Account] {
         guard let data = defaults.data(forKey: accountsKey) else { return [] }
         guard let decoded = try? JSONDecoder().decode([Account].self, from: data) else {
-            // Distinguish corruption from a fresh install: the next save overwrites the
-            // blob permanently, so this line is the only trace of the lost roster.
-            AppLogger.shared.error("accounts decode failed — starting with empty roster")
+            // Preserve the undecodable blob under a sibling key before the empty
+            // roster's first save overwrites it — corruption must stay recoverable
+            // (via `defaults read` + manual repair), never silently fatal.
+            defaults.set(data, forKey: accountsKey + ".corrupt")
+            AppLogger.shared.error("accounts decode failed — raw blob preserved under \(accountsKey).corrupt")
             return []
         }
         return decoded

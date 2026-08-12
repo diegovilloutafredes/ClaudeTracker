@@ -16,6 +16,10 @@ final class LoginWindowController {
     private var loginWindowObserver: NSObjectProtocol?
     private var sessionFound = false
     private var onCancel: (() -> Void)?
+    /// The 1.5 s success-state auto-close. Cancellable: a stale timer from a previous
+    /// attempt firing into a reused window would close it mid-flow for the *next*
+    /// account and run the wrong rollback.
+    private var autoCloseTask: Task<Void, Never>?
 
     /// Opens the sign-in window, or focuses it if already visible.
     ///
@@ -45,6 +49,8 @@ final class LoginWindowController {
         let isReuse = window?.isVisible == true
         if isReuse, !sessionFound { self.onCancel?() }
 
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
         sessionFound = false
         self.onCancel = onCancel
 
@@ -53,7 +59,9 @@ final class LoginWindowController {
             onSessionFound: { [weak self] key in
                 self?.sessionFound = true
                 onSessionFound(key)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                self?.autoCloseTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(1.5))
+                    guard !Task.isCancelled else { return }
                     self?.close()
                 }
             }
@@ -105,6 +113,8 @@ final class LoginWindowController {
     }
 
     func close() {
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
         closePopup()
         window?.close()
         window = nil

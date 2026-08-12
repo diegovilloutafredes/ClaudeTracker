@@ -272,8 +272,15 @@ extension UsageViewModel {
 
     /// Loads per-account chart history from the namespaced UserDefaults key.
     private func loadUsageHistory(for accountID: UUID) -> [UsageDataPoint] {
-        guard let data = UserDefaults.standard.data(forKey: AccountStore.usageHistoryKey(for: accountID)),
-              let decoded = try? JSONDecoder().decode([UsageDataPoint].self, from: data) else { return [] }
+        let key = AccountStore.usageHistoryKey(for: accountID)
+        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
+        guard let decoded = try? JSONDecoder().decode([UsageDataPoint].self, from: data) else {
+            // Same decode-or-wipe guard as AccountStore.loadAccounts: preserve the blob
+            // before the next appendDataPoint save overwrites 30 days of history.
+            UserDefaults.standard.set(data, forKey: key + ".corrupt")
+            AppLogger.shared.error("usageHistory decode failed — raw blob preserved under \(key).corrupt")
+            return []
+        }
         return decoded
     }
 

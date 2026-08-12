@@ -354,6 +354,7 @@ final class UsageViewModel {
                 let response = try await svc.fetchUsage()
                 guard !Task.isCancelled else { return }
                 let oldUsage = statesByAccount[id]?.usage
+                logSeverityTransition(old: oldUsage, new: response)
                 checkForResets(accountID: id, old: oldUsage, new: response)
                 recordHistory(accountID: id, response: response)
                 appendDataPoint(accountID: id, response: response)
@@ -366,6 +367,7 @@ final class UsageViewModel {
                 s.error = nil
                 s.lastUpdated = Date()
                 s.consecutiveErrors = 0
+                s.consecutive401s = 0
                 s.sessionExpired = false
                 statesByAccount[id] = s
                 if let name = svc.cachedOrgName { applyOrgNameToRoster(id: id, orgName: name) }
@@ -377,7 +379,11 @@ final class UsageViewModel {
                 AppLogger.shared.error("fetchUsage APIError (#\(n)): \(err.localizedDescription)")
                 statesByAccount[id, default: .init()].error = err.localizedDescription
                 if case .unauthorized = err {
-                    if n > 1 {
+                    // Counted separately from `consecutiveErrors`: a transient error on
+                    // the previous poll must not make the first 401 look like a second.
+                    let auth401s = (statesByAccount[id]?.consecutive401s ?? 0) + 1
+                    statesByAccount[id, default: .init()].consecutive401s = auth401s
+                    if auth401s > 1 {
                         statesByAccount[id, default: .init()].sessionExpired = true
                         timer?.cancel(); timer = nil
                     } else {
@@ -386,12 +392,14 @@ final class UsageViewModel {
                         shouldSchedule = true
                     }
                 } else {
+                    statesByAccount[id, default: .init()].consecutive401s = 0
                     shouldSchedule = true
                 }
             } catch let err as DecodingError {
                 guard !Task.isCancelled else { return }
                 let n = (statesByAccount[id]?.consecutiveErrors ?? 0) + 1
                 statesByAccount[id, default: .init()].consecutiveErrors = n
+                statesByAccount[id, default: .init()].consecutive401s = 0
                 AppLogger.shared.error("fetchUsage decode error (#\(n)): \(err)")
                 // A raw DecodingError string is useless to the user — the payload head is
                 // already in the log (ClaudeAPIService logs it before rethrowing).
@@ -402,6 +410,7 @@ final class UsageViewModel {
                 guard !Task.isCancelled else { return }
                 let n = (statesByAccount[id]?.consecutiveErrors ?? 0) + 1
                 statesByAccount[id, default: .init()].consecutiveErrors = n
+                statesByAccount[id, default: .init()].consecutive401s = 0
                 AppLogger.shared.error("fetchUsage unexpected error (#\(n)): \(error)")
                 statesByAccount[id, default: .init()].error = error.localizedDescription
                 shouldSchedule = true
@@ -409,6 +418,17 @@ final class UsageViewModel {
             // Only flip the spinner off if this fetch was for the still-active account.
             if id == activeAccountID { isLoading = false }
             if shouldSchedule, id == activeAccountID { scheduleNextPoll() }
+        }
+    }
+
+    /// Only "normal" limit severity has been observed so far; log transitions to anything
+    /// else so the field's semantics can be learned from the field before building UI on it.
+    /// Thin delegation — the signature logic is the pure, tested `abnormalSeverities`
+    /// in Models.swift.
+    private func logSeverityTransition(old: UsageResponse?, new: UsageResponse) {
+        let sig = abnormalSeverities(new.limits)
+        if !sig.isEmpty, sig != abnormalSeverities(old?.limits) {
+            AppLogger.shared.info("limit severity: \(sig)")
         }
     }
 

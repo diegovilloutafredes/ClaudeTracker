@@ -48,6 +48,26 @@ extension UsageViewModel {
             resets.append(String(localized: "7-Day Window"))
         }
 
+        // Per-model windows are watched under the same toggles as their pace alerts —
+        // a window first-class enough to pace-alert on should announce its reset too.
+        if notify7Day, showModelWindows,
+           let oldDate = prev["seven_day_sonnet"],
+           let newWindow = new.sevenDaySonnet,
+           let newDate = newWindow.resetsAtDate,
+           isWindowReset(previous: oldDate, next: newDate, utilization: newWindow.utilization) {
+            resets.append(String(localized: "7-Day Sonnet"))
+        }
+
+        if notify7Day, showModelWindows {
+            for scoped in new.scopedModelWindows {
+                if let oldDate = prev[scoped.paceKey],
+                   let newDate = scoped.window.resetsAtDate,
+                   isWindowReset(previous: oldDate, next: newDate, utilization: scoped.window.utilization) {
+                    resets.append(String(format: String(localized: "7-Day %@"), scoped.label))
+                }
+            }
+        }
+
         recordResetsAt(accountID: accountID, response: new)
 
         if !resets.isEmpty {
@@ -61,6 +81,14 @@ extension UsageViewModel {
         }
         if let w = response.sevenDay, let d = w.resetsAtDate {
             statesByAccount[accountID, default: .init()].previousResetsAt["seven_day"] = d
+        }
+        if let w = response.sevenDaySonnet, let d = w.resetsAtDate {
+            statesByAccount[accountID, default: .init()].previousResetsAt["seven_day_sonnet"] = d
+        }
+        for scoped in response.scopedModelWindows {
+            if let d = scoped.window.resetsAtDate {
+                statesByAccount[accountID, default: .init()].previousResetsAt[scoped.paceKey] = d
+            }
         }
     }
 
@@ -128,8 +156,9 @@ extension UsageViewModel {
     }
 
     /// Fires a pace alert through all enabled channels when a watched window is on track to
-    /// fill before it resets. Each window can only trigger one alert per window period;
-    /// the warned flag resets automatically when utilization drops (i.e. the window resets).
+    /// fill before it resets. Each window triggers at most one alert per concerning episode:
+    /// the warned flag re-arms when the pace improves past the threshold (so a later
+    /// re-acceleration in the same window warns again) and on window reset.
     func checkPaceNotifications(accountID: UUID, response: UsageResponse) {
         // Only the active account should trigger pace toasts/sounds.
         let isActive = (accountID == activeAccountID)
@@ -154,7 +183,17 @@ extension UsageViewModel {
         }
 
         for (key, name, watched) in candidates {
-            guard watched else { continue }
+            guard watched else {
+                // A window that just became unwatched (e.g. "Show per-model usage"
+                // toggled off) must not strand its toast on screen or stay warned.
+                var s = statesByAccount[accountID] ?? .init()
+                if let tid = s.paceToastIDs.removeValue(forKey: key) {
+                    ToastWindowController.shared.dismiss(id: tid)
+                }
+                s.paceWarned.remove(key)
+                statesByAccount[accountID] = s
+                continue
+            }
             let paceData = pace(accountID: accountID, key: key)
             let isConcerning = paceData.flatMap(\.projectedHours).map { $0 * 60 < paceWarningMinutes } ?? false
             var s = statesByAccount[accountID] ?? .init()
@@ -170,11 +209,19 @@ extension UsageViewModel {
                 }
                 if paceSoundEnabled { NSSound(named: .init("Basso"))?.play() }
             } else if !isConcerning, s.paceWarned.contains(key) {
-                // Pace improved past the threshold — dismiss the alert even if set to permanent.
+                // Pace improved past the threshold — dismiss the alert even if set to
+                // permanent, and re-arm so a later re-acceleration in the same window
+                // can warn again (previously the flag stayed set for the whole window).
                 if let tid = s.paceToastIDs.removeValue(forKey: key) {
                     ToastWindowController.shared.dismiss(id: tid)
                 }
-                if paceData == nil { s.paceWarned.remove(key) }
+                // Re-arm only once the projection clears the threshold with 25% margin
+                // (or pace vanished): the 5-minute regression jitters, and re-arming at
+                // the exact boundary would re-fire toast + sound every few polls.
+                let projMinutes = paceData.flatMap(\.projectedHours).map { $0 * 60 }
+                if paceData == nil || (projMinutes ?? .infinity) > paceWarningMinutes * 1.25 {
+                    s.paceWarned.remove(key)
+                }
             }
             statesByAccount[accountID] = s
         }
