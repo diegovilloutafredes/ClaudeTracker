@@ -94,12 +94,16 @@ final class LoginWindowController {
         self.window = window
 
         // If the user closes the window without ever capturing a session, run the rollback.
+        // Cleanup must run SYNCHRONOUSLY inside the notification: deferring it to a Task
+        // let a rapid close→reopen interleave, where the stale task read the replaced
+        // properties — removing the new window's observer and firing the new attempt's
+        // onCancel (rolling back the account the user was actively signing in to).
         loginWindowObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 guard let self else { return }
                 if !self.sessionFound { self.onCancel?() }
                 self.sessionFound = false
@@ -121,6 +125,11 @@ final class LoginWindowController {
     }
 
     private func showPopup(webView: WKWebView) {
+        // A second popup request (nested OAuth, e.g. an account picker opening another
+        // window) replaces the first. Close the old one through the normal path so its
+        // observer is unregistered — an orphaned popup's willClose would otherwise fire
+        // closePopup() against the CURRENT popup and kill the active sign-in flow.
+        closePopup()
         let popup = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 650),
             styleMask: [.titled, .closable, .resizable],

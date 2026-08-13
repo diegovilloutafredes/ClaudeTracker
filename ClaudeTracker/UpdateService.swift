@@ -322,7 +322,20 @@ final class UpdateService {
 
                 // Relaunch: try a detached shell script first (works in unsigned release builds).
                 // Fall back to NSWorkspace.open when Process is sandbox-blocked.
-                let relaunchScript = "#!/bin/bash\nsleep 1.5\nopen \"/Applications/ClaudeTracker.app\"\n"
+                // The script waits for the old process to actually exit (up to ~10 s, then
+                // pkill as a last resort) before `open` — a fixed sleep raced slow teardowns,
+                // where `open` re-activated the dying instance and the app never came back.
+                let relaunchScript = """
+                #!/bin/bash
+                for _ in $(seq 1 20); do
+                  pgrep -x ClaudeTracker >/dev/null || break
+                  sleep 0.5
+                done
+                pkill -x ClaudeTracker 2>/dev/null
+                sleep 0.3
+                open "/Applications/ClaudeTracker.app"
+
+                """
                 let scriptURL = tmpBase.appendingPathComponent("relaunch.sh")
                 var usedScript = false
                 if (try? relaunchScript.write(to: scriptURL, atomically: true, encoding: .utf8)) != nil {

@@ -104,11 +104,19 @@ enum SandboxMigration {
             // failure, the already-migrated (and possibly since-updated) store is
             // newer than the container copy.
             if fm.fileExists(atPath: dst.path) { continue }
+            // Copy to a staging sibling, then rename: copyItem is not atomic, and a
+            // crash/force-quit mid-copy would otherwise leave a partial store that the
+            // fileExists check above counts as migrated — permanently losing that
+            // account's session with no diagnostic. The rename is the commit point.
+            let staging = targetStores.appendingPathComponent(".\(src.lastPathComponent).partial")
             do {
-                try fm.copyItem(at: src, to: dst)
+                try? fm.removeItem(at: staging) // stale partial from an interrupted run
+                try fm.copyItem(at: src, to: staging)
+                try fm.moveItem(at: staging, to: dst)
                 copied += 1
             } catch {
                 allOK = false
+                try? fm.removeItem(at: staging)
                 AppLogger.shared.error("WebKit migration copy failed for \(src.lastPathComponent): \(error)")
             }
         }

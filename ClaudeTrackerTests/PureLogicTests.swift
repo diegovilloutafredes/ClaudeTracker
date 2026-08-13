@@ -735,6 +735,16 @@ final class APIFixtureTests: XCTestCase {
         XCTAssertNil(accounts.first?.email)
         XCTAssertNil(accounts.first?.subscriptionLabel)
         XCTAssertNil(accounts.first?.orgName)
+        // Legacy rows must decode with pending == nil — a non-nil default would make
+        // the launch-time reclamation pass delete real signed-in accounts.
+        XCTAssertNil(accounts.first?.pending)
+    }
+
+    func testAccountPendingFlagRoundTrips() throws {
+        let acct = Account(label: "New", pending: true)
+        let data = try JSONEncoder().encode([acct])
+        let decoded = try JSONDecoder().decode([Account].self, from: data)
+        XCTAssertEqual(decoded.first?.pending, true)
     }
 
     func testAccountRoundTripsThroughJSON() throws {

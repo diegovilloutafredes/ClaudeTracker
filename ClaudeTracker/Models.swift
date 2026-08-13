@@ -706,6 +706,10 @@ struct Account: Codable, Identifiable, Hashable, Sendable {
     var orgName: String?
     let dataStoreIdentifier: UUID
     let addedAt: Date
+    /// True while the account is a placeholder awaiting its first sign-in. Cleared when a
+    /// session is captured; rows still `true` at launch were abandoned by a quit/crash
+    /// with the login window open and are reclaimed by `loadAccountsAndStartActive()`.
+    var pending: Bool?
 
     init(id: UUID = UUID(),
          label: String,
@@ -713,7 +717,8 @@ struct Account: Codable, Identifiable, Hashable, Sendable {
          subscriptionLabel: String? = nil,
          orgName: String? = nil,
          dataStoreIdentifier: UUID = UUID(),
-         addedAt: Date = Date()) {
+         addedAt: Date = Date(),
+         pending: Bool? = nil) {
         self.id = id
         self.label = label
         self.email = email
@@ -721,6 +726,7 @@ struct Account: Codable, Identifiable, Hashable, Sendable {
         self.orgName = orgName
         self.dataStoreIdentifier = dataStoreIdentifier
         self.addedAt = addedAt
+        self.pending = pending
     }
 
     init(from decoder: Decoder) throws {
@@ -732,6 +738,7 @@ struct Account: Codable, Identifiable, Hashable, Sendable {
         self.orgName = try c.decodeIfPresent(String.self, forKey: .orgName)
         self.dataStoreIdentifier = try c.decode(UUID.self, forKey: .dataStoreIdentifier)
         self.addedAt = try c.decode(Date.self, forKey: .addedAt)
+        self.pending = try c.decodeIfPresent(Bool.self, forKey: .pending)
     }
 }
 

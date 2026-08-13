@@ -12,7 +12,23 @@ extension UsageViewModel {
     /// API service and starts polling. If no accounts exist, runs a one-shot migration to
     /// import any legacy `.default()` session into a per-identifier data store.
     func loadAccountsAndStartActive() {
-        accounts = AccountStore.loadAccounts()
+        var loaded = AccountStore.loadAccounts()
+        // Reclaim placeholders abandoned by a quit/crash while the login window was open:
+        // they were persisted before sign-in and their willClose rollback never fired.
+        // Their data stores hold no session — a surviving row could only 401.
+        let abandoned = loaded.filter { $0.pending == true }
+        if !abandoned.isEmpty {
+            loaded.removeAll { $0.pending == true }
+            AccountStore.saveAccounts(loaded)
+            for acct in abandoned {
+                UserDefaults.standard.removeObject(forKey: AccountStore.usageHistoryKey(for: acct.id))
+                WKWebsiteDataStore.remove(forIdentifier: acct.dataStoreIdentifier) { err in
+                    if let err { AppLogger.shared.error("abandoned data store remove failed: \(err.localizedDescription)") }
+                }
+                AppLogger.shared.info("reclaimed abandoned pending account \(acct.id.uuidString.prefix(8))")
+            }
+        }
+        accounts = loaded
         activeAccountID = AccountStore.loadActiveID()
 
         // Bootstrap state buckets for every known account; load each account's chart history.
@@ -67,6 +83,14 @@ extension UsageViewModel {
         guard let id = activeAccountID else { return }
         statesByAccount[id, default: .init()].error = nil
         statesByAccount[id, default: .init()].sessionExpired = false
+        // The account is real now — clear the pending flag so a later launch doesn't
+        // reclaim it as an abandoned placeholder. (Array reassign: see renameAccount.)
+        if let idx = accounts.firstIndex(where: { $0.id == id }), accounts[idx].pending == true {
+            var copy = accounts
+            copy[idx].pending = nil
+            accounts = copy
+            AccountStore.saveAccounts(accounts)
+        }
         startSession()
     }
 
@@ -97,6 +121,11 @@ extension UsageViewModel {
     func switchAccount(to id: UUID) {
         guard id != activeAccountID, let acct = accounts.first(where: { $0.id == id }) else { return }
 
+        // Abandon any in-progress sign-in first: `buildActiveService` below tears down
+        // the service whose webview the login window is displaying, which would leave a
+        // dead window and a lingering placeholder. Closing fires the pending-add
+        // rollback synchronously through the willClose path.
+        LoginWindowController.shared.close()
         cancelInFlightWork()
         dismissPaceToasts(for: activeAccountID)
         activeAccountID = id
@@ -113,7 +142,7 @@ extension UsageViewModel {
     @discardableResult
     func addAccount(label: String? = nil) -> Account {
         let placeholder = label ?? String(localized: "Claude account")
-        let acct = Account(label: placeholder)
+        let acct = Account(label: placeholder, pending: true)
         accounts.append(acct)
         statesByAccount[acct.id] = AccountState()
         AccountStore.saveAccounts(accounts)

@@ -106,7 +106,10 @@ struct MenuBarChartsView: View {
                 scale: scale,
                 use24Hour: viewModel.use24HourTime
             )
-            if let w = window {
+            // Same staleness gate as the Usage tab's rows: after a reset that passed
+            // while the app wasn't polling, a forecast anchored to the expired window
+            // would present stale data as current.
+            if let w = window, !viewModel.isWindowStale(w) {
                 projectionChart(
                     allHistory: viewModel.usageHistory,
                     utilKeyPath: utilKeyPath,
@@ -154,10 +157,13 @@ struct MenuBarChartsView: View {
             let accentColor = forecastAccentColor(paceRate: paceRate, lastVal: lastVal, lastDate: lastDate, resetDate: resetDate)
             let span = xMax.timeIntervalSince(windowStart)
             let xFmt = chartAxisFormat(forSpan: span, use24Hour: viewModel.use24HourTime)
+            // Same gap cutoff as MiniChartView: only pair the cursor with a sample that
+            // is actually near it (5% of the span, min 10 min).
             let hovered: (Date, Double)? = selectedTime.wrappedValue.flatMap { t in
-                (windowStart...xMax).contains(t)
-                    ? pairs.min(by: { abs($0.0.timeIntervalSince(t)) < abs($1.0.timeIntervalSince(t)) })
-                    : nil
+                guard (windowStart...xMax).contains(t),
+                      let nearest = pairs.min(by: { abs($0.0.timeIntervalSince(t)) < abs($1.0.timeIntervalSince(t)) }),
+                      abs(nearest.0.timeIntervalSince(t)) <= max(span * 0.05, 600) else { return nil }
+                return nearest
             }
             let hoveredLabel: String? = hovered.map { t, v in
                 let windowDurationSecs = resetDate.timeIntervalSince(windowStart)
@@ -347,7 +353,12 @@ private struct MiniChartView: View {
                 guard let v = dp[keyPath: keyPath] else { return nil }
                 return (dp.timestamp, v)
             }
-            return pairs.min(by: { abs($0.0.timeIntervalSince(t)) < abs($1.0.timeIntervalSince(t)) })
+            // Only match a sample near the cursor (5% of the visible span, min 10 min):
+            // inside a data gap (Mac asleep) there is no reading, and snapping to one
+            // hours away would present it as belonging to the hovered instant.
+            guard let nearest = pairs.min(by: { abs($0.0.timeIntervalSince(t)) < abs($1.0.timeIntervalSince(t)) }),
+                  abs(nearest.0.timeIntervalSince(t)) <= max(span * 0.05, 600) else { return nil }
+            return nearest
         }()
         let displayValue = hovered?.1 ?? (values.last ?? 0)
         let nowLabel: String = {
@@ -395,8 +406,10 @@ private struct MiniChartView: View {
                             .interpolationMethod(.monotone)
                         }
                     }
-                    if let t = selectedTime, xDomain.contains(t) {
-                        RuleMark(x: .value("Selected", t))
+                    // The crosshair marks the MATCHED sample's own timestamp, not the
+                    // cursor time — asserting the reading belongs where it actually is.
+                    if let (ht, _) = hovered, xDomain.contains(ht) {
+                        RuleMark(x: .value("Selected", ht))
                             .foregroundStyle(Color.secondary.opacity(0.5))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                     }
