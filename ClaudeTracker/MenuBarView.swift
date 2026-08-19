@@ -7,7 +7,9 @@ struct MenuBarView: View {
 
     @AppStorage(PrefKey.selectedTab) private var selectedTab = 0
     @State private var contentHeight: CGFloat = 0
-    private let baseWidth: CGFloat = 312
+    /// Sized so the Charts tab's scrollbar gutter (`chartsScrollGutter`) doesn't cost the
+    /// charts any width: 312 pt of content plus the gutter.
+    private let baseWidth: CGFloat = 312 + chartsScrollGutter
     private var s: CGFloat { CGFloat(viewModel.popupScale) }
     private func sf(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size * s, weight: weight)

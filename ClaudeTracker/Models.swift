@@ -120,8 +120,17 @@ enum PrefKey {
     static let showChartsTab = "showChartsTab"
     static let selectedTab = "selectedTab"
     static let chartTimeRange = "chartTimeRange"
-    /// Gates all per-model usage rows (legacy Sonnet + scoped limits). The stored key name
-    /// predates the scoped rows and is kept for persistence compatibility.
+    /// Charts tab content filter. Series visibility is stored as the *hidden* set so a
+    /// model-scoped window the API starts reporting shows up without the user opting in.
+    static let chartHiddenSeries = "chartHiddenSeries"
+    static let chartShowUtilization = "chartShowUtilization"
+    static let chartShowPace = "chartShowPace"
+    static let chartShowForecast = "chartShowForecast"
+    /// Gates the per-model rows of the **Usage tab** (legacy Sonnet + scoped limits) and
+    /// their reset/pace alerts. The Charts tab is deliberately exempt — it has its own
+    /// content filter (`chartHiddenSeries`), so the two controls never fight over the same
+    /// series. The stored key name predates the scoped rows and is kept for persistence
+    /// compatibility.
     static let showModelWindows = "showSonnetWindow"
     static let use24HourTime = "use24HourTime"
     static let notificationDefaultsVersion = "notificationDefaultsVersion"
@@ -626,7 +635,98 @@ struct UsageDataPoint: Codable, Identifiable, Sendable {
     /// Consumption rate in %/hr at snapshot time; nil when history was insufficient.
     let fiveHourPace: Double?
     let sevenDayPace: Double?
+    /// Per-model utilization keyed by the window's history key ("seven_day_sonnet",
+    /// "scoped.<Model>"). Nil on points recorded before per-model charts existed and on
+    /// accounts whose response carries no model-scoped limits.
+    let models: [String: Double]?
+    /// Per-model consumption rate in %/hr, keyed like `models`.
+    let modelPaces: [String: Double]?
     var id: Date { timestamp }
+
+    init(timestamp: Date, fiveHour: Double?, sevenDay: Double?,
+         fiveHourPace: Double?, sevenDayPace: Double?,
+         models: [String: Double]? = nil, modelPaces: [String: Double]? = nil) {
+        self.timestamp = timestamp
+        self.fiveHour = fiveHour
+        self.sevenDay = sevenDay
+        self.fiveHourPace = fiveHourPace
+        self.sevenDayPace = sevenDayPace
+        self.models = models
+        self.modelPaces = modelPaces
+    }
+
+    /// Utilization for a chart series, routing the two built-in windows to their dedicated
+    /// fields and every model-scoped window to the dictionary.
+    func utilization(for key: String) -> Double? {
+        switch key {
+        case MenuBarWindow.fiveHour.rawValue: return fiveHour
+        case MenuBarWindow.sevenDay.rawValue: return sevenDay
+        default: return models?[key]
+        }
+    }
+
+    /// Consumption rate in %/hr for a chart series, keyed like `utilization(for:)`.
+    func paceRate(for key: String) -> Double? {
+        switch key {
+        case MenuBarWindow.fiveHour.rawValue: return fiveHourPace
+        case MenuBarWindow.sevenDay.rawValue: return sevenDayPace
+        default: return modelPaces?[key]
+        }
+    }
+}
+
+// MARK: - Chart Series
+
+/// One section of the Charts tab: a usage window plus the key its history samples are
+/// stored under (shared with the pace buckets).
+struct ChartSeries: Identifiable, Sendable {
+    let key: String
+    /// Already-localized section title, e.g. "5-Hour" or "7-Day Fable".
+    let title: String
+    /// The live window, used for the forecast chart. Nil before the first fetch — the
+    /// utilization and pace charts still render from persisted history.
+    let window: UsageWindow?
+    /// Window length, used to anchor the forecast chart's start.
+    let duration: TimeInterval
+    var id: String { key }
+}
+
+/// The chart sections available for a usage response, in display order.
+///
+/// The two built-in windows are always listed, with or without a response: the Charts tab
+/// renders them from persisted history, so dropping them when `usage` is nil (fresh launch,
+/// failing fetch) would blank charts that have 30 days of data behind them. Model-scoped
+/// series exist only while the response reports them.
+func chartSeries(for response: UsageResponse?) -> [ChartSeries] {
+    let week: TimeInterval = 7 * 24 * 3600
+    var result: [ChartSeries] = [
+        ChartSeries(key: MenuBarWindow.fiveHour.rawValue, title: MenuBarWindow.fiveHour.shortLabel,
+                    window: response?.fiveHour, duration: 5 * 3600),
+        ChartSeries(key: MenuBarWindow.sevenDay.rawValue, title: MenuBarWindow.sevenDay.shortLabel,
+                    window: response?.sevenDay, duration: week),
+    ]
+    if let sonnet = response?.sevenDaySonnet {
+        result.append(ChartSeries(key: "seven_day_sonnet", title: String(localized: "7-Day Sonnet"),
+                                  window: sonnet, duration: week))
+    }
+    for scoped in response?.scopedModelWindows ?? [] {
+        result.append(ChartSeries(key: scoped.paceKey,
+                                  title: String(format: String(localized: "7-Day %@"), scoped.label),
+                                  window: scoped.window, duration: week))
+    }
+    return result
+}
+
+/// Serializes the Charts tab's hidden-series set for `@AppStorage`.
+///
+/// Newline-separated because keys embed API-supplied model names, and sorted so rebuilding
+/// an unchanged set can't churn the stored string.
+func encodeHiddenKeys(_ keys: Set<String>) -> String {
+    keys.sorted().joined(separator: "\n")
+}
+
+func decodeHiddenKeys(_ raw: String) -> Set<String> {
+    Set(raw.split(separator: "\n").map(String.init))
 }
 
 // MARK: - Pace Rate Unit
@@ -687,6 +787,14 @@ enum MenuBarWindow: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .fiveHour: return String(localized: "5-Hour Window")
         case .sevenDay: return String(localized: "7-Day Window")
+        }
+    }
+
+    /// Compact title for the Charts tab sections, where the "Window" suffix is noise.
+    var shortLabel: String {
+        switch self {
+        case .fiveHour: return String(localized: "5-Hour")
+        case .sevenDay: return String(localized: "7-Day")
         }
     }
 }

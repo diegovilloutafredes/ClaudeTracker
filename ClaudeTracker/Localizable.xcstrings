@@ -1369,6 +1369,39 @@
           }
         }
       }
+    },
+    "Windows": {
+      "comment": "Charts tab filter menu section header for the list of usage windows",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ventanas"
+          }
+        }
+      }
+    },
+    "Nothing selected": {
+      "comment": "Charts tab empty state when the filter hides every window or chart kind",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada seleccionado"
+          }
+        }
+      }
+    },
+    "Chart content": {
+      "comment": "Accessibility label for the Charts tab content filter menu button",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contenido del gráfico"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

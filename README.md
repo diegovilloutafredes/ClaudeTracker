@@ -11,7 +11,7 @@ A macOS menu bar app that shows your [Claude AI](https://claude.ai) usage limits
 <p align="center">
   <img src="docs/screenshots/popover-usage.png" width="280" alt="Usage popover showing 5-Hour, 7-Day, and per-model windows with pace indicators">
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/screenshots/popover-charts.png" width="280" alt="Charts tab with historical utilization, pace, and forecast charts">
+  <img src="docs/screenshots/popover-charts.png" width="280" alt="Charts tab with historical utilization, pace, and forecast charts for each window, including per-model limits">
 </p>
 
 <p align="center">
@@ -26,7 +26,7 @@ A macOS menu bar app that shows your [Claude AI](https://claude.ai) usage limits
 - Reset countdowns with relative and absolute time ("Resets in 3 hr · 5:30 PM" — AM/PM or 24-hour, configurable in Settings); 7-day windows add the full date when the reset isn't today ("Resets in 6 days · Thu, Jul 9 at 17:00")
 - Menu bar icon showing the selected window's utilization percentage; icon and badge use a continuous green → yellow → orange → red urgency gradient
 - Subscription badge (Free, Pro, Max 5x, Max 20x, Team, Enterprise)
-- **Charts tab** — historical area + line charts for all four windows with selectable time ranges (1h / 5h / 24h / 7d / 30d) and hover-interactive crosshair
+- **Charts tab** — historical area + line charts for every window, including per-model limits (e.g. 7-Day Fable), with selectable time ranges (1h / 5h / 24h / 7d / 30d) and hover-interactive crosshair; the filter menu next to the range picker chooses which windows and which charts (utilization / pace / forecast) are shown
 - **Pace indicator** — shows current consumption rate (%/hr) and projected time to full; configurable rate window (30s / 1m / 5m / 10m / 15m / 30m)
 - **Pace alerts** — toast/sound notification when a window is projected to fill before it resets; auto-dismissed when pace improves past the warning threshold
 - **Stale data detection** — if a usage window reset while the Mac was asleep, the app detects it on wake and refreshes instead of showing stale high utilization
@@ -133,7 +133,8 @@ Each Claude account gets its own `WKWebsiteDataStore(forIdentifier:)`, so cookie
 | `Models.swift` | Codable structs for API responses; `Account` + `AccountStore` + per-account `AccountState`; `MenuBarWindow` display enum; `UpdateInfo`; `computePace()` + pure helpers (`adaptiveCheckInterval`, `isWindowReset`, `windowIsStale`) |
 | `LoginView.swift` | `NSViewRepresentable` wrapping the API web view; `LoginWindowController` |
 | `ToastWindowController.swift` | Floating `NSPanel`-based toast, positioned near the top-right corner |
-| `MenuBarView.swift` | Popover content — scalable progress bars (incl. per-model rows), reset countdowns, charts tab, update banner, account picker |
+| `MenuBarView.swift` | Popover content — scalable progress bars (incl. per-model rows), reset countdowns, update banner, account picker |
+| `MenuBarChartsView.swift` | Charts tab — per-window utilization, pace, and forecast charts; time-range picker and content filter menu |
 | `SettingsView.swift` | Accounts list (rename / switch / remove), update checker, popup scale, notification and refresh settings |
 | `AppLogger.swift` | Rolling file logger (`~/Library/Logs/ClaudeTracker/`); also writes to `os.log` |
 

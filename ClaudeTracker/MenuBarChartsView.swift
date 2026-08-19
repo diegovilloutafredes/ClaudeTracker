@@ -1,6 +1,14 @@
 import SwiftUI
 import Charts
 
+/// Trailing space reserved inside the Charts tab's `ScrollView` for the macOS overlay
+/// scroller, which is drawn at the scroll view's trailing edge and would otherwise cover
+/// the charts' trailing y-axis labels (its resting track occupies the last ~10 pt of the
+/// content width). `MenuBarView.baseWidth` adds the same amount, so the gutter costs the
+/// charts no width — widening the popover alone would not help, since the charts fill the
+/// scroll view and the scroller moves outward with them.
+let chartsScrollGutter: CGFloat = 14
+
 /// Hour:minute axis/hover labels for spans under ~a day; abbreviated month + day beyond.
 /// The hour cycle is pinned to the Time format setting so chart times match the reset line.
 private func chartAxisFormat(forSpan span: TimeInterval, use24Hour: Bool) -> Date.FormatStyle {
@@ -19,11 +27,23 @@ struct MenuBarChartsView: View {
     let scale: CGFloat
 
     @AppStorage(PrefKey.chartTimeRange) private var chartTimeRange: ChartTimeRange = .oneDay
+    @AppStorage(PrefKey.chartHiddenSeries) private var hiddenSeriesRaw = ""
+    @AppStorage(PrefKey.chartShowUtilization) private var showUtilizationChart = true
+    @AppStorage(PrefKey.chartShowPace) private var showPaceChart = true
+    @AppStorage(PrefKey.chartShowForecast) private var showForecastChart = true
     /// Shared across all charts: hovering any chart shows the rule mark on all of them.
     @State private var selectedTime: Date?
 
     private func sf(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size * scale, weight: weight)
+    }
+
+    /// Caps the scrolling section list so the popover can't grow past the screen: it has no
+    /// scroll view of its own, and `PopoverResizer` pins the top edge, so an oversized
+    /// popover runs off the bottom and clips silently. The subtrahend covers the popover
+    /// chrome above and below this list (header, tabs, range picker, footer, padding).
+    private var maxSectionsHeight: CGFloat {
+        max((NSScreen.main?.visibleFrame.height ?? 900) - 250 * scale, 320 * scale)
     }
 
     var body: some View {
@@ -36,88 +56,148 @@ struct MenuBarChartsView: View {
         let cutoff = now.addingTimeInterval(-chartTimeRange.hours * 3600)
         let chartXDomain = cutoff...now
         let visibleHistory = viewModel.usageHistory.filter { $0.timestamp >= cutoff }
+        let hidden = decodeHiddenKeys(hiddenSeriesRaw)
+        let allSeries = chartSeries(for: viewModel.usage)
+        let visibleSeries = allSeries.filter { !hidden.contains($0.key) }
+        let anyKindShown = showUtilizationChart || showPaceChart || showForecastChart
 
         VStack(alignment: .leading, spacing: 16 * scale) {
-            ScaledSegmentedPicker(selection: $chartTimeRange,
-                                  options: ChartTimeRange.allCases,
-                                  scale: scale) { range in
-                Text(range.rawValue)
-            }
-            if visibleHistory.isEmpty {
-                Text("No data for this period")
-                    .font(sf(12))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 16 * scale)
-            } else {
-                VStack(alignment: .leading, spacing: 22 * scale) {
-                    windowCharts(
-                        title: "5-Hour", utilKeyPath: \.fiveHour, paceKeyPath: \.fiveHourPace,
-                        history: visibleHistory, xDomain: chartXDomain, selectedTime: $selectedTime,
-                        window: viewModel.usage?.fiveHour, windowDuration: 5 * 3600,
-                        currentPaceRate: viewModel.pace(for: MenuBarWindow.fiveHour.rawValue)?.rate
-                    )
-                    Divider()
-                    windowCharts(
-                        title: "7-Day", utilKeyPath: \.sevenDay, paceKeyPath: \.sevenDayPace,
-                        history: visibleHistory, xDomain: chartXDomain, selectedTime: $selectedTime,
-                        window: viewModel.usage?.sevenDay, windowDuration: 7 * 24 * 3600,
-                        currentPaceRate: viewModel.pace(for: MenuBarWindow.sevenDay.rawValue)?.rate
-                    )
+            HStack(spacing: 8 * scale) {
+                ScaledSegmentedPicker(selection: $chartTimeRange,
+                                      options: ChartTimeRange.allCases,
+                                      scale: scale) { range in
+                    Text(range.rawValue)
                 }
+                filterMenu(allSeries)
+            }
+            if visibleSeries.isEmpty || !anyKindShown {
+                message("Nothing selected")
+            } else if visibleHistory.isEmpty {
+                message("No data for this period")
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22 * scale) {
+                        ForEach(Array(visibleSeries.enumerated()), id: \.element.id) { index, series in
+                            if index > 0 { Divider() }
+                            windowCharts(series: series, history: visibleHistory,
+                                         xDomain: chartXDomain, selectedTime: $selectedTime)
+                        }
+                    }
+                    .padding(.trailing, chartsScrollGutter * scale)
+                }
+                .frame(maxHeight: maxSectionsHeight)
+                .scrollBounceBehavior(.basedOnSize)
             }
         }
     }
 
+    private func message(_ text: LocalizedStringKey) -> some View {
+        Text(text)
+            .font(sf(12))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 16 * scale)
+    }
+
+    // MARK: - Content Filter
+
+    /// Checkmark menu selecting which windows and which chart kinds the tab renders.
+    private func filterMenu(_ series: [ChartSeries]) -> some View {
+        Menu {
+            Section("Windows") {
+                ForEach(series) { s in
+                    Toggle(s.title, isOn: seriesVisibility(s.key))
+                }
+            }
+            Section("Charts") {
+                Toggle("Utilization", isOn: $showUtilizationChart)
+                Toggle("Pace", isOn: $showPaceChart)
+                Toggle("Forecast", isOn: $showForecastChart)
+            }
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(sf(13))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel(Text("Chart content"))
+    }
+
+    /// Visibility is stored inverted (the hidden set) so a model window the API starts
+    /// reporting appears without the user having to opt in.
+    private func seriesVisibility(_ key: String) -> Binding<Bool> {
+        Binding(
+            get: { !decodeHiddenKeys(hiddenSeriesRaw).contains(key) },
+            set: { visible in
+                var hidden = decodeHiddenKeys(hiddenSeriesRaw)
+                if visible { hidden.remove(key) } else { hidden.insert(key) }
+                hiddenSeriesRaw = encodeHiddenKeys(hidden)
+            }
+        )
+    }
+
     @ViewBuilder
     private func windowCharts(
-        title: String,
-        utilKeyPath: KeyPath<UsageDataPoint, Double?>,
-        paceKeyPath: KeyPath<UsageDataPoint, Double?>,
+        series: ChartSeries,
         history: [UsageDataPoint],
         xDomain: ClosedRange<Date>,
-        selectedTime: Binding<Date?>,
-        window: UsageWindow? = nil,
-        windowDuration: TimeInterval = 5 * 3600,
-        currentPaceRate: Double? = nil
+        selectedTime: Binding<Date?>
     ) -> some View {
+        let key = series.key
+        // Same staleness gate as the Usage tab's rows: after a reset that passed while the
+        // app wasn't polling, a forecast anchored to the expired window would present stale
+        // data as current.
+        let forecastWindow: UsageWindow? = showForecastChart
+            ? series.window.flatMap { viewModel.isWindowStale($0) ? nil : $0 }
+            : nil
         VStack(alignment: .leading, spacing: 14 * scale) {
-            Text(LocalizedStringKey(title))
+            Text(series.title)
                 .font(sf(11, .semibold))
-            MiniChartView(
-                label: "Utilization",
-                filtered: history,
-                keyPath: utilKeyPath,
-                domain: 0...100,
-                xDomain: xDomain,
-                selectedTime: selectedTime,
-                paceRateUnit: nil,
-                scale: scale,
-                use24Hour: viewModel.use24HourTime
-            )
-            MiniChartView(
-                label: "Pace",
-                filtered: history,
-                keyPath: paceKeyPath,
-                domain: nil,
-                xDomain: xDomain,
-                selectedTime: selectedTime,
-                paceRateUnit: viewModel.paceRateUnit,
-                scale: scale,
-                use24Hour: viewModel.use24HourTime
-            )
-            // Same staleness gate as the Usage tab's rows: after a reset that passed
-            // while the app wasn't polling, a forecast anchored to the expired window
-            // would present stale data as current.
-            if let w = window, !viewModel.isWindowStale(w) {
+            if showUtilizationChart {
+                MiniChartView(
+                    label: "Utilization",
+                    filtered: history,
+                    value: { $0.utilization(for: key) },
+                    domain: 0...100,
+                    xDomain: xDomain,
+                    selectedTime: selectedTime,
+                    paceRateUnit: nil,
+                    scale: scale,
+                    use24Hour: viewModel.use24HourTime
+                )
+            }
+            if showPaceChart {
+                MiniChartView(
+                    label: "Pace",
+                    filtered: history,
+                    value: { $0.paceRate(for: key) },
+                    domain: nil,
+                    xDomain: xDomain,
+                    selectedTime: selectedTime,
+                    paceRateUnit: viewModel.paceRateUnit,
+                    scale: scale,
+                    use24Hour: viewModel.use24HourTime
+                )
+            }
+            if let w = forecastWindow {
                 projectionChart(
                     allHistory: viewModel.usageHistory,
-                    utilKeyPath: utilKeyPath,
+                    value: { $0.utilization(for: key) },
                     window: w,
-                    paceRate: currentPaceRate,
-                    windowDuration: windowDuration,
+                    paceRate: viewModel.pace(for: key)?.rate,
+                    windowDuration: series.duration,
                     selectedTime: selectedTime
                 )
+            }
+            // Forecast alone, on a window with no live data (nothing fetched yet, or stale),
+            // would leave the section as a bare title — which reads as broken, not as empty.
+            if !showUtilizationChart, !showPaceChart, forecastWindow == nil {
+                Text("Collecting…")
+                    .font(sf(9))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(height: 50 * scale)
             }
         }
     }
@@ -133,7 +213,7 @@ struct MenuBarChartsView: View {
     @ViewBuilder
     private func projectionChart(
         allHistory: [UsageDataPoint],
-        utilKeyPath: KeyPath<UsageDataPoint, Double?>,
+        value: (UsageDataPoint) -> Double?,
         window: UsageWindow,
         paceRate: Double?,
         windowDuration: TimeInterval,
@@ -144,7 +224,7 @@ struct MenuBarChartsView: View {
             let pairs: [(Date, Double)] = allHistory
                 .filter { $0.timestamp >= windowStart }
                 .compactMap { dp in
-                    guard let v = dp[keyPath: utilKeyPath] else { return nil }
+                    guard let v = value(dp) else { return nil }
                     return (dp.timestamp, v)
                 }
             let lastDate = pairs.last?.0
@@ -324,7 +404,9 @@ extension View {
 private struct MiniChartView: View {
     let label: String
     let filtered: [UsageDataPoint]
-    let keyPath: KeyPath<UsageDataPoint, Double?>
+    /// Extracts this chart's sample from a history point. A closure rather than a key path
+    /// because model-scoped series live in `UsageDataPoint.models`, keyed by window.
+    let value: (UsageDataPoint) -> Double?
     let domain: ClosedRange<Double>?
     let xDomain: ClosedRange<Date>
     @Binding var selectedTime: Date?
@@ -341,7 +423,7 @@ private struct MiniChartView: View {
     }
 
     var body: some View {
-        let values: [Double] = filtered.compactMap { $0[keyPath: keyPath] }
+        let values: [Double] = filtered.compactMap(value)
         let peak = values.max() ?? 0
         let avg = values.isEmpty ? 0.0 : values.reduce(0, +) / Double(values.count)
         let color: Color = urgencyColor(min((values.last ?? 0) / 100.0, 1.0))
@@ -350,7 +432,7 @@ private struct MiniChartView: View {
         let hovered: (Date, Double)? = {
             guard let t = selectedTime else { return nil }
             let pairs = filtered.compactMap { dp -> (Date, Double)? in
-                guard let v = dp[keyPath: keyPath] else { return nil }
+                guard let v = value(dp) else { return nil }
                 return (dp.timestamp, v)
             }
             // Only match a sample near the cursor (5% of the visible span, min 10 min):
@@ -390,7 +472,7 @@ private struct MiniChartView: View {
             } else {
                 Chart {
                     ForEach(filtered) { dp in
-                        if let v = dp[keyPath: keyPath] {
+                        if let v = value(dp) {
                             AreaMark(
                                 x: .value("Time", dp.timestamp),
                                 y: .value(label, v)

@@ -152,6 +152,66 @@ final class PureLogicTests: XCTestCase {
         XCTAssertFalse(result!.contains { $0.timestamp == now.addingTimeInterval(-2000) })
     }
 
+    // MARK: - Chart series sample lookup
+
+    func testDataPointRoutesBuiltInWindowsToTheirOwnFields() {
+        let dp = UsageDataPoint(timestamp: Date(), fiveHour: 12, sevenDay: 34,
+                                fiveHourPace: 1.5, sevenDayPace: 2.5)
+        XCTAssertEqual(dp.utilization(for: "five_hour"), 12)
+        XCTAssertEqual(dp.utilization(for: "seven_day"), 34)
+        XCTAssertEqual(dp.paceRate(for: "five_hour"), 1.5)
+        XCTAssertEqual(dp.paceRate(for: "seven_day"), 2.5)
+    }
+
+    func testDataPointRoutesModelWindowsToTheDictionaries() {
+        let dp = UsageDataPoint(timestamp: Date(), fiveHour: 12, sevenDay: 34,
+                                fiveHourPace: nil, sevenDayPace: nil,
+                                models: ["scoped.Fable": 7, "seven_day_sonnet": 21],
+                                modelPaces: ["scoped.Fable": 0.5])
+        XCTAssertEqual(dp.utilization(for: "scoped.Fable"), 7)
+        XCTAssertEqual(dp.utilization(for: "seven_day_sonnet"), 21)
+        XCTAssertEqual(dp.paceRate(for: "scoped.Fable"), 0.5)
+        // A model with no pace bucket yet must read as "no sample", not zero.
+        XCTAssertNil(dp.paceRate(for: "seven_day_sonnet"))
+        XCTAssertNil(dp.utilization(for: "scoped.Nonexistent"))
+    }
+
+    func testDataPointDecodesHistoryStoredBeforeModelChartsExisted() throws {
+        // A literal payload in the pre-`models` format — a round-trip of the current struct
+        // could not catch a regression here, since the encoder writes whatever we decode.
+        let json = """
+        {"timestamp": 774000000, "fiveHour": 40, "sevenDay": 55, "fiveHourPace": 3, "sevenDayPace": 1}
+        """
+        let dp = try JSONDecoder().decode(UsageDataPoint.self, from: Data(json.utf8))
+        XCTAssertEqual(dp.fiveHour, 40)
+        XCTAssertEqual(dp.sevenDay, 55)
+        XCTAssertNil(dp.models)
+        XCTAssertNil(dp.modelPaces)
+        XCTAssertNil(dp.utilization(for: "scoped.Fable"))
+    }
+
+    // MARK: - Chart content filter persistence
+
+    func testHiddenKeysRoundTripAndSortStably() {
+        let keys: Set<String> = ["seven_day", "scoped.Fable"]
+        let raw = encodeHiddenKeys(keys)
+        XCTAssertEqual(raw, "scoped.Fable\nseven_day")
+        XCTAssertEqual(decodeHiddenKeys(raw), keys)
+        // Same set, different construction order — the stored string must not churn.
+        XCTAssertEqual(encodeHiddenKeys(["scoped.Fable", "seven_day"]), raw)
+    }
+
+    func testHiddenKeysEmptyStringDecodesToEmptySet() {
+        XCTAssertTrue(decodeHiddenKeys("").isEmpty)
+        XCTAssertEqual(encodeHiddenKeys([]), "")
+    }
+
+    func testHiddenKeysPreserveModelNamesContainingSpacesAndCommas() {
+        // Keys embed API-supplied display names; a comma separator would split them.
+        let keys: Set<String> = ["scoped.Claude 3.5, Sonnet"]
+        XCTAssertEqual(decodeHiddenKeys(encodeHiddenKeys(keys)), keys)
+    }
+
     // MARK: - PaceBand
 
     func testPaceBandSafeWhenProjectionBeyondReset() {
@@ -557,6 +617,46 @@ final class APIFixtureTests: XCTestCase {
         """
         let r = try decode(UsageResponse.self, json)
         XCTAssertEqual(r.scopedModelWindows.map(\.label), ["Fable"])
+    }
+
+    // MARK: - Charts tab series
+
+    func testChartSeriesKeepsBuiltInWindowsWithoutAResponse() {
+        // Before the first fetch (or while one is failing) the Charts tab still renders the
+        // built-in windows from persisted history — dropping them would blank real data.
+        let series = chartSeries(for: nil)
+        XCTAssertEqual(series.map(\.key), ["five_hour", "seven_day"])
+        XCTAssertTrue(series.allSatisfy { $0.window == nil })
+        XCTAssertEqual(series.first?.duration, 5 * 3600)
+        XCTAssertEqual(series.last?.duration, 7 * 24 * 3600)
+    }
+
+    func testChartSeriesAppendsModelWindowsInDisplayOrder() throws {
+        let json = """
+        {
+          "five_hour": {"utilization": 3, "resets_at": "2026-07-11T14:49:59Z"},
+          "seven_day": {"utilization": 10, "resets_at": "2026-07-16T20:59:59Z"},
+          "seven_day_sonnet": {"utilization": 30, "resets_at": "2026-07-16T21:00:00Z"},
+          "limits": [
+            {"kind": "weekly_scoped", "percent": 1, "resets_at": "2026-07-16T21:00:00Z",
+             "scope": {"model": {"id": null, "display_name": "Fable"}}}
+          ]
+        }
+        """
+        let series = chartSeries(for: try decode(UsageResponse.self, json))
+        XCTAssertEqual(series.map(\.key), ["five_hour", "seven_day", "seven_day_sonnet", "scoped.Fable"])
+        // Every section must resolve a live window, or its forecast chart never renders.
+        XCTAssertTrue(series.allSatisfy { $0.window != nil })
+        XCTAssertEqual(series.last?.window?.utilization, 1)
+        XCTAssertEqual(series.last?.duration, 7 * 24 * 3600)
+    }
+
+    func testChartSeriesOmitsModelWindowsTheResponseDoesNotReport() throws {
+        let json = """
+        {"five_hour": {"utilization": 3, "resets_at": null}, "seven_day_sonnet": null, "limits": []}
+        """
+        let series = chartSeries(for: try decode(UsageResponse.self, json))
+        XCTAssertEqual(series.map(\.key), ["five_hour", "seven_day"])
     }
 
     func testLimitsDecodeIsPerElementFailSoft() throws {

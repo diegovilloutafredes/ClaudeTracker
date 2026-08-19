@@ -257,12 +257,31 @@ extension UsageViewModel {
     /// 30-day pruning, and the 8640-point cap (all in the pure `appendPrunedDataPoint`).
     func appendDataPoint(accountID: UUID, response: UsageResponse) {
         var s = statesByAccount[accountID] ?? .init()
+        // Recorded regardless of the Charts tab's filter and the Usage tab's per-model
+        // toggle: enabling a series later must not present an empty chart.
+        var models: [String: Double] = [:]
+        var modelPaces: [String: Double] = [:]
+        func recordModel(key: String, utilization: Double) {
+            models[key] = utilization
+            if let rate = pace(accountID: accountID, key: key)?.rate { modelPaces[key] = rate }
+        }
+        if let sonnet = response.sevenDaySonnet {
+            recordModel(key: "seven_day_sonnet", utilization: sonnet.utilization)
+        }
+        for scoped in response.scopedModelWindows {
+            recordModel(key: scoped.paceKey, utilization: scoped.window.utilization)
+        }
+
         let point = UsageDataPoint(
             timestamp: Date(),
             fiveHour: response.fiveHour?.utilization,
             sevenDay: response.sevenDay?.utilization,
             fiveHourPace: pace(accountID: accountID, key: "five_hour")?.rate,
-            sevenDayPace: pace(accountID: accountID, key: "seven_day")?.rate
+            sevenDayPace: pace(accountID: accountID, key: "seven_day")?.rate,
+            // Empty dictionaries would cost bytes in every point stored by an account
+            // whose response reports no model-scoped limits.
+            models: models.isEmpty ? nil : models,
+            modelPaces: modelPaces.isEmpty ? nil : modelPaces
         )
         // Throttle/prune/cap contract lives in the pure helper; nil means "sampled too soon".
         guard let history = appendPrunedDataPoint(point, to: s.usageHistory,
