@@ -516,6 +516,115 @@ final class APIFixtureTests: XCTestCase {
         XCTAssertEqual(r.scopedModelWindows.first?.label, "Fable")
     }
 
+    // MARK: - spend / locked_reason (decode-only, logged never displayed)
+
+    func testSpendAndLockedReasonDecodeFromLivePayloadShape() throws {
+        // Shape observed live 2026-09-02 on a Max 5x org.
+        let json = """
+        {
+          "five_hour": {"utilization": 12.0, "resets_at": "2026-09-02T12:10:00.294700+00:00",
+                        "limit_dollars": null, "used_dollars": null, "remaining_dollars": null,
+                        "locked_reason": null},
+          "seven_day": {"utilization": 2.0, "resets_at": "2026-09-03T21:00:00.294739+00:00",
+                        "locked_reason": "spend_limit_reached"},
+          "extra_usage": {"is_enabled": false, "monthly_limit": null, "used_credits": null,
+                          "utilization": null, "currency": null, "decimal_places": null,
+                          "disabled_reason": null, "user_disabled": false,
+                          "spend_limit_reached": false, "credits_ever_enabled": false,
+                          "daily": null, "weekly": null},
+          "spend": {"used": {"amount_minor": 1250, "currency": "USD", "exponent": 2},
+                    "limit": null, "percent": 0, "severity": "normal", "enabled": false,
+                    "disabled_reason": null, "cap": null, "balance": null, "auto_reload": null,
+                    "disclaimer": "Usage credits cover you when you hit your plan limits.",
+                    "can_purchase_credits": true, "can_toggle": true},
+          "member_dashboard_available": false
+        }
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertNil(r.fiveHour?.lockedReason)
+        XCTAssertEqual(r.sevenDay?.lockedReason, "spend_limit_reached")
+        XCTAssertEqual(r.spend?.enabled, false)
+        XCTAssertEqual(r.spend?.percent, 0)
+        XCTAssertEqual(r.spend?.severity, "normal")
+        XCTAssertEqual(r.spend?.used?.amountMinor, 1250)
+        XCTAssertEqual(r.spend?.used?.currency, "USD")
+        XCTAssertEqual(r.spend?.used?.exponent, 2)
+        XCTAssertEqual(r.spend?.canPurchaseCredits, true)
+    }
+
+    func testSpendAndLockedReasonAbsentOnOlderPayloads() throws {
+        let json = """
+        {"five_hour": {"utilization": 5, "resets_at": null}}
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertNil(r.fiveHour?.lockedReason)
+        XCTAssertNil(r.spend)
+    }
+
+    func testWrongTypedLockedReasonDoesNotDropWindow() throws {
+        let json = """
+        {"five_hour": {"utilization": 5, "resets_at": null, "locked_reason": {"code": 1}}}
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertEqual(r.fiveHour?.utilization, 5)
+        XCTAssertNil(r.fiveHour?.lockedReason)
+    }
+
+    func testWrongTypedSpendFieldDegradesToNilNotWholeObject() throws {
+        let json = """
+        {"spend": {"enabled": "yes", "percent": 40, "severity": "warning", "used": 7}}
+        """
+        let r = try decode(UsageResponse.self, json)
+        XCTAssertNotNil(r.spend)
+        XCTAssertNil(r.spend?.enabled)
+        XCTAssertEqual(r.spend?.percent, 40)
+        XCTAssertEqual(r.spend?.severity, "warning")
+        XCTAssertNil(r.spend?.used)
+    }
+
+    func testUsageDiagnosticsEmptyForQuietLivePayload() throws {
+        // Disabled spend that agrees with extra_usage, normal severity, no locks → nothing to log.
+        let json = """
+        {
+          "five_hour": {"utilization": 12, "resets_at": null, "locked_reason": null},
+          "extra_usage": {"is_enabled": false},
+          "spend": {"enabled": false, "percent": 0, "severity": "normal"}
+        }
+        """
+        XCTAssertEqual(usageDiagnostics(try decode(UsageResponse.self, json)), "")
+        XCTAssertEqual(usageDiagnostics(try decode(UsageResponse.self, "{}")), "")
+    }
+
+    func testUsageDiagnosticsReportsLocksSpendEnabledAndDisagreement() throws {
+        let locked = """
+        {"five_hour": {"utilization": 100, "resets_at": null, "locked_reason": "abuse"},
+         "seven_day_sonnet": {"utilization": 1, "resets_at": null, "locked_reason": "paused"}}
+        """
+        XCTAssertEqual(usageDiagnostics(try decode(UsageResponse.self, locked)),
+                       "five_hour.locked=abuse seven_day_sonnet.locked=paused")
+
+        let enabled = """
+        {"extra_usage": {"is_enabled": true},
+         "spend": {"enabled": true, "percent": 35.5, "severity": "normal",
+                   "used": {"amount_minor": 1250, "currency": "USD", "exponent": 2}}}
+        """
+        XCTAssertEqual(usageDiagnostics(try decode(UsageResponse.self, enabled)),
+                       "spend=enabled(pct=35.5,sev=normal,used=1250 USD e2,reason=nil)")
+
+        let disagree = """
+        {"extra_usage": {"is_enabled": true},
+         "spend": {"enabled": false, "severity": "normal", "disabled_reason": "out_of_credits"}}
+        """
+        XCTAssertEqual(usageDiagnostics(try decode(UsageResponse.self, disagree)),
+                       "spend=disabled(pct=nil,sev=normal,used=nil,reason=out_of_credits) extra_usage.is_enabled=true")
+
+        let abnormal = """
+        {"spend": {"enabled": false, "severity": "exceeded"}}
+        """
+        XCTAssertEqual(usageDiagnostics(try decode(UsageResponse.self, abnormal)),
+                       "spend=disabled(pct=nil,sev=exceeded,used=nil,reason=nil)")
+    }
+
     // MARK: - Severity log signature
 
     func testAbnormalSeveritiesEmptyWhenAllNormal() throws {

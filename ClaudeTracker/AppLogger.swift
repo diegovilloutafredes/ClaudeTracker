@@ -61,6 +61,10 @@ final class AppLogger: Sendable {
             fh.write(data)
             try? fh.close()
         } else {
+            // The directory is created in init, but a cleanup tool can delete it while
+            // the app runs (observed: ~/Library/Logs/ClaudeTracker gone under a live
+            // process). Without this, every later write fails silently until relaunch.
+            try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? data.write(to: url, options: .atomic)
         }
     }

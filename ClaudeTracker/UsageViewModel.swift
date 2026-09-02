@@ -430,6 +430,12 @@ final class UsageViewModel {
         if !sig.isEmpty, sig != abnormalSeverities(old?.limits) {
             AppLogger.shared.info("limit severity: \(sig)")
         }
+        // Same idea for `locked_reason` / `spend`: decoded but not displayed until their
+        // semantics are learned from the field. Pure signature in `usageDiagnostics`.
+        let diag = usageDiagnostics(new)
+        if !diag.isEmpty, diag != old.map(usageDiagnostics) {
+            AppLogger.shared.info("usage diagnostics: \(diag)")
+        }
     }
 
 /// Schedules the next poll after an adaptive delay derived from current utilization and pace.

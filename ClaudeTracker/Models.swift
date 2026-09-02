@@ -303,6 +303,9 @@ struct UsageResponse: Codable, Sendable {
     /// The newer, generalized limit list. Model-scoped weekly limits (e.g. Fable) only
     /// appear here — the legacy `seven_day_*` fields are null on Fable-era accounts.
     let limits: [UsageLimit]?
+    /// Newer credit-spend object that mirrors `extraUsage` (observed 2026-09). Decoded
+    /// so its relationship to `extraUsage` can be learned from the log — **never displayed**.
+    let spend: Spend?
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
@@ -311,16 +314,19 @@ struct UsageResponse: Codable, Sendable {
         case sevenDaySonnet = "seven_day_sonnet"
         case extraUsage = "extra_usage"
         case limits
+        case spend
     }
 
     init(fiveHour: UsageWindow?, sevenDay: UsageWindow?, sevenDayOpus: UsageWindow?,
-         sevenDaySonnet: UsageWindow?, extraUsage: ExtraUsage?, limits: [UsageLimit]? = nil) {
+         sevenDaySonnet: UsageWindow?, extraUsage: ExtraUsage?, limits: [UsageLimit]? = nil,
+         spend: Spend? = nil) {
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
         self.sevenDayOpus = sevenDayOpus
         self.sevenDaySonnet = sevenDaySonnet
         self.extraUsage = extraUsage
         self.limits = limits
+        self.spend = spend
     }
 
     /// Fail-soft decoding: a malformed sub-window (e.g. the API ships `"utilization": null`
@@ -337,6 +343,7 @@ struct UsageResponse: Codable, Sendable {
         self.extraUsage = (try? c.decodeIfPresent(ExtraUsage.self, forKey: .extraUsage)) ?? nil
         self.limits = ((try? c.decodeIfPresent([FailableLimit].self, forKey: .limits)) ?? nil)
             .map { $0.compactMap(\.limit) }
+        self.spend = (try? c.decodeIfPresent(Spend.self, forKey: .spend)) ?? nil
     }
 
     /// The windows shown in the UI, in display order.
@@ -429,6 +436,78 @@ func abnormalSeverities(_ limits: [UsageLimit]?) -> String {
         .joined(separator: " ")
 }
 
+/// The top-level `spend` object of the usage response — credit spend in minor currency
+/// units. Only the disabled shape has been observed live; every field is lenient and
+/// optional so a shape change can never nil the object or fail the response.
+struct Spend: Codable, Sendable {
+    let enabled: Bool?
+    let percent: Double?
+    let severity: String?
+    let disabledReason: String?
+    let used: SpendAmount?
+    let canPurchaseCredits: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, percent, severity, used
+        case disabledReason = "disabled_reason"
+        case canPurchaseCredits = "can_purchase_credits"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? nil
+        percent = (try? c.decodeIfPresent(Double.self, forKey: .percent)) ?? nil
+        severity = (try? c.decodeIfPresent(String.self, forKey: .severity)) ?? nil
+        disabledReason = (try? c.decodeIfPresent(String.self, forKey: .disabledReason)) ?? nil
+        used = (try? c.decodeIfPresent(SpendAmount.self, forKey: .used)) ?? nil
+        canPurchaseCredits = (try? c.decodeIfPresent(Bool.self, forKey: .canPurchaseCredits)) ?? nil
+    }
+}
+
+/// A money amount as the `spend` object reports it: `amount_minor` scaled by `10^exponent`.
+struct SpendAmount: Codable, Sendable {
+    let amountMinor: Int
+    let currency: String
+    let exponent: Int
+
+    enum CodingKeys: String, CodingKey {
+        case amountMinor = "amount_minor"
+        case currency, exponent
+    }
+}
+
+/// Signature of the not-yet-understood fields worth learning from the field, for the
+/// diagnostics log: any window with a non-null `locked_reason`, and the `spend` object
+/// whenever it is enabled, carries a non-"normal" severity, or disagrees with
+/// `extra_usage.is_enabled`. Empty for the quiet shape observed live (everything
+/// disabled/normal/unlocked), so the log stays silent until something changes.
+func usageDiagnostics(_ r: UsageResponse) -> String {
+    var parts: [String] = []
+    let windows: [(String, UsageWindow?)] = [
+        ("five_hour", r.fiveHour), ("seven_day", r.sevenDay),
+        ("seven_day_opus", r.sevenDayOpus), ("seven_day_sonnet", r.sevenDaySonnet),
+    ]
+    for (key, window) in windows {
+        if let reason = window?.lockedReason { parts.append("\(key).locked=\(reason)") }
+    }
+    if let spend = r.spend {
+        let enabled = spend.enabled ?? false
+        let extraEnabled = r.extraUsage?.isEnabled
+        let abnormal = (spend.severity ?? "normal") != "normal"
+        let disagrees = extraEnabled != nil && extraEnabled != enabled
+        if enabled || abnormal || disagrees {
+            let used = spend.used.map { "\($0.amountMinor) \($0.currency) e\($0.exponent)" } ?? "nil"
+            parts.append("spend=\(enabled ? "enabled" : "disabled")"
+                         + "(pct=\(spend.percent.map { "\($0)" } ?? "nil")"
+                         + ",sev=\(spend.severity ?? "nil")"
+                         + ",used=\(used)"
+                         + ",reason=\(spend.disabledReason ?? "nil"))")
+            if disagrees { parts.append("extra_usage.is_enabled=\(extraEnabled ?? false)") }
+        }
+    }
+    return parts.joined(separator: " ")
+}
+
 /// The `scope` object of a `weekly_scoped` limit entry.
 struct UsageLimitScope: Codable, Sendable {
     let model: UsageLimitModel?
@@ -469,10 +548,30 @@ struct UsageWindow: Codable, Sendable {
     /// ISO 8601 timestamp of the next reset. Nil immediately after a reset while the server
     /// is computing the new window — decoding must tolerate null here.
     let resetsAt: String?
+    /// Why the window is locked, if the API says it is. Only `null` observed live so far —
+    /// **logged (via `usageDiagnostics`), never displayed** until the vocabulary is known.
+    let lockedReason: String?
 
     enum CodingKeys: String, CodingKey {
         case utilization
         case resetsAt = "resets_at"
+        case lockedReason = "locked_reason"
+    }
+
+    init(utilization: Double, resetsAt: String?, lockedReason: String? = nil) {
+        self.utilization = utilization
+        self.resetsAt = resetsAt
+        self.lockedReason = lockedReason
+    }
+
+    /// `lockedReason` is lenient: a wrong-typed value must not throw and nil the whole
+    /// window (which would drop its row from the UI). `utilization`/`resetsAt` keep
+    /// their strict semantics.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        utilization = try c.decode(Double.self, forKey: .utilization)
+        resetsAt = try c.decodeIfPresent(String.self, forKey: .resetsAt)
+        lockedReason = (try? c.decodeIfPresent(String.self, forKey: .lockedReason)) ?? nil
     }
 
     /// Parses `resetsAt` into a `Date`.
