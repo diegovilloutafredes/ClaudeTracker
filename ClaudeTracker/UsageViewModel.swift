@@ -19,7 +19,6 @@ final class UsageViewModel {
             UserDefaults.standard.set(menuBarWindow.rawValue, forKey: PrefKey.menuBarWindow)
         }
     }
-    var isLoading = false
 
     // MARK: - Multi-Account State
 
@@ -32,7 +31,8 @@ final class UsageViewModel {
     /// switched accounts mid-fetch.
     var statesByAccount: [UUID: AccountState] = [:]
     /// True while the one-shot first-launch migration is copying the legacy `.default()`
-    /// session into a per-identifier data store. The popover shows a loading state while true.
+    /// session into a per-identifier data store. `isAuthenticated` is false meanwhile, so
+    /// the popover shows the signed-out empty state until the migration finishes.
     var isMigrating: Bool = false
 
 /// Active account's last fetched usage response. Read-only — fetch path writes to the
@@ -323,7 +323,6 @@ final class UsageViewModel {
         fetchTask?.cancel(); fetchTask = nil
         sessionTask?.cancel(); sessionTask = nil
         timer?.cancel(); timer = nil
-        isLoading = false
     }
 
     // MARK: - Polling
@@ -346,7 +345,6 @@ final class UsageViewModel {
         guard isAuthenticated, let id = activeAccountID, let svc = apiService else { return }
         if isDataStale { AppLogger.shared.info("fetchUsage: refreshing stale data (resetsAt passed since last fetch)") }
         fetchTask?.cancel()
-        isLoading = true
         fetchTask = Task { [weak self] in
             guard let self else { return }
             var shouldSchedule = false
@@ -374,10 +372,8 @@ final class UsageViewModel {
                 shouldSchedule = true
             } catch let err as ClaudeAPIService.APIError {
                 guard !Task.isCancelled else { return }
-                let n = (statesByAccount[id]?.consecutiveErrors ?? 0) + 1
-                statesByAccount[id, default: .init()].consecutiveErrors = n
-                AppLogger.shared.error("fetchUsage APIError (#\(n)): \(err.localizedDescription)")
-                statesByAccount[id, default: .init()].error = err.localizedDescription
+                recordFetchFailure(id: id, log: "APIError", detail: err.localizedDescription,
+                                   message: err.localizedDescription)
                 if case .unauthorized = err {
                     // Counted separately from `consecutiveErrors`: a transient error on
                     // the previous poll must not make the first 401 look like a second.
@@ -397,32 +393,36 @@ final class UsageViewModel {
                 }
             } catch let err as DecodingError {
                 guard !Task.isCancelled else { return }
-                let n = (statesByAccount[id]?.consecutiveErrors ?? 0) + 1
-                statesByAccount[id, default: .init()].consecutiveErrors = n
-                statesByAccount[id, default: .init()].consecutive401s = 0
-                AppLogger.shared.error("fetchUsage decode error (#\(n)): \(err)")
                 // A raw DecodingError string is useless to the user — the payload head is
                 // already in the log (ClaudeAPIService logs it before rethrowing).
-                statesByAccount[id, default: .init()].error =
-                    String(localized: "claude.ai API format changed — check for app updates")
+                recordFetchFailure(id: id, log: "decode error", detail: "\(err)",
+                                   message: String(localized: "claude.ai API format changed — check for app updates"))
+                statesByAccount[id, default: .init()].consecutive401s = 0
                 shouldSchedule = true
             } catch {
                 guard !Task.isCancelled else { return }
-                let n = (statesByAccount[id]?.consecutiveErrors ?? 0) + 1
-                statesByAccount[id, default: .init()].consecutiveErrors = n
+                recordFetchFailure(id: id, log: "unexpected error", detail: "\(error)",
+                                   message: error.localizedDescription)
                 statesByAccount[id, default: .init()].consecutive401s = 0
-                AppLogger.shared.error("fetchUsage unexpected error (#\(n)): \(error)")
-                statesByAccount[id, default: .init()].error = error.localizedDescription
                 shouldSchedule = true
             }
-            // Only flip the spinner off if this fetch was for the still-active account.
-            if id == activeAccountID { isLoading = false }
             if shouldSchedule, id == activeAccountID { scheduleNextPoll() }
         }
     }
 
-    /// Only "normal" limit severity has been observed so far; log transitions to anything
-    /// else so the field's semantics can be learned from the field before building UI on it.
+    /// Bumps the account's consecutive-error count, logs the failure with that count, and
+    /// surfaces `message` in the popover. Deliberately leaves `consecutive401s` alone — the
+    /// 401 branch owns that counter (see the session-recovery notes in CLAUDE.md).
+    private func recordFetchFailure(id: UUID, log: String, detail: String, message: String) {
+        let n = (statesByAccount[id]?.consecutiveErrors ?? 0) + 1
+        statesByAccount[id, default: .init()].consecutiveErrors = n
+        AppLogger.shared.error("fetchUsage \(log) (#\(n)): \(detail)")
+        statesByAccount[id, default: .init()].error = message
+    }
+
+    /// Logs transitions to any non-"normal" limit severity ("warning" from ~70%, "critical"
+    /// from ~90% — approximate bands learned from this log) so the field's semantics keep
+    /// accumulating evidence before any UI is built on it.
     /// Thin delegation — the signature logic is the pure, tested `abnormalSeverities`
     /// in Models.swift.
     private func logSeverityTransition(old: UsageResponse?, new: UsageResponse) {
@@ -483,26 +483,21 @@ final class UsageViewModel {
                             projectedMinutes: projMins)
     }
 
-    func intervalForProjMins(_ projMins: Double) -> TimeInterval {
-        pollIntervalForProjectedMinutes(projMins)
-    }
-
     // MARK: - Computed State
 
     /// Highest utilization across the 5-hour and 7-day windows.
     var maxUtilization: Double {
-        [usage?.fiveHour, usage?.sevenDay]
-            .compactMap { $0?.utilization }
-            .max() ?? 0
+        usage?.allWindows.map(\.1.utilization).max() ?? 0
+    }
+
+    /// The window the user has selected for the menu bar label.
+    var displayedWindow: UsageWindow? {
+        usage?.allWindows.first { $0.0 == menuBarWindow }?.1
     }
 
     /// Utilization of the window the user has selected for the menu bar label.
     var displayedUtilization: Double {
-        guard let usage else { return 0 }
-        switch menuBarWindow {
-        case .fiveHour: return usage.fiveHour?.utilization ?? 0
-        case .sevenDay:  return usage.sevenDay?.utilization  ?? 0
-        }
+        displayedWindow?.utilization ?? 0
     }
 
     /// True when the stored `usage` was fetched before a window's `resetsAt` time that has
@@ -511,7 +506,7 @@ final class UsageViewModel {
     var isDataStale: Bool {
         guard let usage, let lastUpdated else { return false }
         let now = Date()
-        return [usage.fiveHour, usage.sevenDay].compactMap { $0 }.contains { window in
+        return usage.allWindows.contains { _, window in
             windowIsStale(resetsAt: window.resetsAtDate, lastUpdated: lastUpdated, now: now)
         }
     }
@@ -527,39 +522,34 @@ final class UsageViewModel {
         return "\(Int(displayedUtilization))%"
     }
 
+    /// Urgency driving the menu bar icon and its color: utilization of the displayed window
+    /// or its (banded) pace urgency, whichever is higher — so the icon also elevates when
+    /// pace alone is high at low utilization.
+    private var effectiveUrgency: Double {
+        max(displayedUtilization / 100.0, displayedWindowPaceUrgency())
+    }
+
     var statusIcon: String {
         if isDataStale { return "bolt.fill" }
-        let effectiveUrgency = max(displayedUtilization / 100.0, displayedWindowPaceUrgency())
-        if effectiveUrgency >= 0.8 { return "exclamationmark.triangle.fill" }
-        if effectiveUrgency >= 0.5 { return "bolt.badge.clock.fill" }
+        let urgency = effectiveUrgency
+        if urgency >= 0.8 { return "exclamationmark.triangle.fill" }
+        if urgency >= 0.5 { return "bolt.badge.clock.fill" }
         return "bolt.fill"
     }
 
     var statusColor: NSColor {
         guard isAuthenticated, usage != nil, !isDataStale else { return .labelColor }
-        let effectiveUrgency = max(displayedUtilization / 100.0, displayedWindowPaceUrgency())
         return urgencyNSColor(effectiveUrgency)
     }
 
-    func urgencyNSColor(_ urgency: Double) -> NSColor {
-        let t = max(0, min(1, urgency))
-        return NSColor(hue: 0.33 * (1 - t), saturation: 0.85, brightness: 0.9, alpha: 1.0)
-    }
-
     func displayedWindowPaceUrgency() -> Double {
-        let key: String
-        let window: UsageWindow?
-        switch menuBarWindow {
-        case .fiveHour: key = "five_hour"; window = usage?.fiveHour
-        case .sevenDay:  key = "seven_day";  window = usage?.sevenDay
-        }
-        guard let paceData = pace(for: key),
+        guard let paceData = pace(for: menuBarWindow.rawValue),
               let proj = paceData.projectedHours,
               proj > 0,
-              let resetDate = window?.resetsAtDate else { return 0 }
-        let hoursToReset = resetDate.timeIntervalSinceNow / 3600
-        guard hoursToReset > 0 else { return 0 }
-        return min(hoursToReset / proj, 1.0)
+              let resetDate = displayedWindow?.resetsAtDate else { return 0 }
+        // Banded like the popover's PaceBand — a continuous ratio here read as near-critical
+        // in the menu bar while the row beneath said "On track".
+        return paceUrgency(projectedHours: proj, hoursToReset: resetDate.timeIntervalSinceNow / 3600)
     }
 
 }

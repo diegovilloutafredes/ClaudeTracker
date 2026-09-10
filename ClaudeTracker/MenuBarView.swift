@@ -214,21 +214,9 @@ struct MenuBarView: View {
         }
 
         VStack(alignment: .leading, spacing: 17 * s) {
-            ForEach(usage.allWindows, id: \.0) { windowKey, window in
-                windowRow(title: windowKey.label, window: window,
-                          paceKey: windowKey.rawValue,
-                          includeResetDate: windowKey == .sevenDay)
-            }
-            if viewModel.showModelWindows, let sonnet = usage.sevenDaySonnet {
-                windowRow(title: String(localized: "7-Day Sonnet"), window: sonnet,
-                          paceKey: "seven_day_sonnet", includeResetDate: true)
-            }
-            if viewModel.showModelWindows {
-                ForEach(usage.scopedModelWindows, id: \.label) { scoped in
-                    windowRow(title: String(format: String(localized: "7-Day %@"), scoped.label),
-                              window: scoped.window,
-                              paceKey: scoped.paceKey, includeResetDate: true)
-                }
+            ForEach(usage.trackedWindows.filter { viewModel.showModelWindows || !$0.isModelScoped }) { tracked in
+                windowRow(title: tracked.title, window: tracked.window,
+                          paceKey: tracked.key, includeResetDate: tracked.isSevenDay)
             }
         }
 

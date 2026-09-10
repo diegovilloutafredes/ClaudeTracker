@@ -26,21 +26,6 @@ final class AppLogger: Sendable {
     func info(_ msg: String)  { write(msg, level: "INFO");  osLog.info("\(msg, privacy: .public)") }
     func error(_ msg: String) { write(msg, level: "ERROR"); osLog.error("\(msg, privacy: .public)") }
 
-    /// Returns the last `maxBytes` of the log file as a string. Reads on the logger
-    /// queue so it can't observe a mid-append or mid-rotation file.
-    func tail(maxBytes: Int = 32_768) -> String {
-        guard let url = logFileURL else { return "(no log file)" }
-        return queue.sync {
-            guard let data = try? Data(contentsOf: url) else { return "(no log file)" }
-            // Lossy decode ON PURPOSE: the byte cut can land mid-multibyte-character
-            // (the log has non-ASCII, e.g. "…"), and the failable String(data:encoding:)
-            // the lint rule prefers would return nil for the WHOLE tail instead of
-            // mangling one character.
-            // swiftlint:disable:next optional_data_string_conversion
-            return String(decoding: data.suffix(maxBytes), as: UTF8.self)
-        }
-    }
-
     private func write(_ msg: String, level: String) {
         let line = "[\(timestamp())] [\(level)] \(msg)\n"
         queue.async { [weak self] in self?.append(line) }

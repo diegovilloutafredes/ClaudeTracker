@@ -9,17 +9,14 @@ extension UsageViewModel {
     private var menuBarPaceText: String? {
         guard showPaceMenuBar, isAuthenticated, usage != nil, !isDataStale else { return nil }
         guard displayedUtilization < 100 else { return nil }
-        let key: String
-        switch menuBarWindow {
-        case .fiveHour: key = "five_hour"
-        case .sevenDay:  key = "seven_day"
-        }
-        guard let paceData = pace(for: key) else { return nil }
+        guard let paceData = pace(for: menuBarWindow.rawValue) else { return nil }
         return paceRateUnit.format(paceData.rate, prefix: true, short: true)
     }
 
     private var menuBarPaceColor: NSColor {
-        urgencyNSColor(displayedWindowPaceUrgency())
+        let urgency = displayedWindowPaceUrgency()
+        // Safe pace is neutral, matching the popover's gray rate text.
+        return urgency == 0 ? .secondaryLabelColor : urgencyNSColor(urgency)
     }
 
     var menuBarImage: NSImage {

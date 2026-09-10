@@ -18,9 +18,6 @@ extension HTTPCookie {
 final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// The underlying web view, exposed so `LoginView` can embed it directly for in-app sign-in.
     let webView: WKWebView
-    /// Identifier of the `WKWebsiteDataStore` backing this service's cookie jar.
-    let dataStoreIdentifier: UUID
-
     private var isPageReady = false
     private var readyWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
     private var isLoadingPage = false
@@ -32,13 +29,12 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     private(set) var cachedOrgName: String?
     private var cookieTask: Task<Void, Never>?
     private var popupWebView: WKWebView?
-    var onPopupRequested: ((WKWebView, WKWindowFeatures) -> Void)?
+    var onPopupRequested: ((WKWebView) -> Void)?
     var onPopupDismissed: (() -> Void)?
 
     /// Builds an API service backed by a per-identifier `WKWebsiteDataStore` so each account
     /// keeps its cookies (and `sessionKey`) isolated from every other account.
     init(dataStoreIdentifier: UUID) {
-        self.dataStoreIdentifier = dataStoreIdentifier
         let config = WKWebViewConfiguration()
         config.websiteDataStore = WKWebsiteDataStore(forIdentifier: dataStoreIdentifier)
         self.webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 1, height: 1), configuration: config)
@@ -341,7 +337,7 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
         let popup = WKWebView(frame: .zero, configuration: configuration)
         popup.uiDelegate = self
         popupWebView = popup
-        onPopupRequested?(popup, windowFeatures)
+        onPopupRequested?(popup)
         return popup
     }
 

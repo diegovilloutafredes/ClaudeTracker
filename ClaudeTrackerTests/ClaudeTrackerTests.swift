@@ -236,24 +236,16 @@ final class ClaudeTrackerTests: XCTestCase {
         XCTAssertFalse(windowIsStale(resetsAt: now, lastUpdated: nil, now: now))
     }
 
-    // MARK: - Poll interval from projected minutes
-    // Exercises the construction/startup split: a bare UsageViewModel() is now
-    // constructible in tests because init() no longer spawns tasks/observers.
+    // MARK: - Construction / startup split
 
+    /// A bare `UsageViewModel()` must stay constructible: `init()` only loads preferences,
+    /// and all live work (observers, polling, update checks) waits for `start()`.
     @MainActor
-    func testIntervalForProjMinsBoundaries() {
+    func testViewModelIsConstructibleWithoutSideEffects() {
         let vm = UsageViewModel()
-        XCTAssertEqual(vm.intervalForProjMins(120), 10)
-        XCTAssertEqual(vm.intervalForProjMins(60), 10)
-        XCTAssertEqual(vm.intervalForProjMins(45), 8)
-        XCTAssertEqual(vm.intervalForProjMins(30), 8)
-        XCTAssertEqual(vm.intervalForProjMins(20), 5)
-        XCTAssertEqual(vm.intervalForProjMins(15), 5)
-        XCTAssertEqual(vm.intervalForProjMins(10), 3)
-        XCTAssertEqual(vm.intervalForProjMins(5), 3)
-        XCTAssertEqual(vm.intervalForProjMins(3), 2)
-        XCTAssertEqual(vm.intervalForProjMins(2), 2)
-        XCTAssertEqual(vm.intervalForProjMins(1), 1)
+        XCTAssertNil(vm.activeAccountID)
+        XCTAssertNil(vm.usage)
+        XCTAssertFalse(vm.isAuthenticated)
     }
 
     // MARK: - Helpers

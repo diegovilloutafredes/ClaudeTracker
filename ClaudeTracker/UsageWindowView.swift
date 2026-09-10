@@ -111,11 +111,7 @@ struct UsageWindowView: View {
     }
 
     private func paceLine(rate: Double) -> some View {
-        let color: Color = {
-            guard let proj = projectedHours,
-                  let resetDate = window.resetsAtDate else { return .secondary }
-            return paceUrgencyColor(proj: proj, hoursToReset: resetDate.timeIntervalSinceNow / 3600)
-        }()
+        let color = paceAccentColor(projectedHours: projectedHours, resetsAt: window.resetsAtDate, isStale: isStale)
 
         let rateText = paceRateUnit.format(rate, prefix: true)
         let projText: String? = projectedHours.flatMap { h in

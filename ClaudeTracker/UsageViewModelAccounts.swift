@@ -21,10 +21,7 @@ extension UsageViewModel {
             loaded.removeAll { $0.pending == true }
             AccountStore.saveAccounts(loaded)
             for acct in abandoned {
-                UserDefaults.standard.removeObject(forKey: AccountStore.usageHistoryKey(for: acct.id))
-                WKWebsiteDataStore.remove(forIdentifier: acct.dataStoreIdentifier) { err in
-                    if let err { AppLogger.shared.error("abandoned data store remove failed: \(err.localizedDescription)") }
-                }
+                purgeAccountStorage(id: acct.id, dataStoreID: acct.dataStoreIdentifier, context: "abandoned")
                 AppLogger.shared.info("reclaimed abandoned pending account \(acct.id.uuidString.prefix(8))")
             }
         }
@@ -45,18 +42,26 @@ extension UsageViewModel {
             return
         }
 
-        guard let id = activeAccountID, let acct = accounts.first(where: { $0.id == id }) else {
-            // Roster exists but active is invalid — pick the first.
-            if let first = accounts.first {
-                activeAccountID = first.id
-                AccountStore.saveActiveID(first.id)
-                buildActiveService(for: first)
-                startSession()
-            }
-            return
-        }
-        buildActiveService(for: acct)
+        // Roster exists but the stored active id is invalid — fall back to the first.
+        let acct = accounts.first { $0.id == activeAccountID } ?? accounts.first
+        if let acct { activate(acct) }
+    }
+
+    /// Makes `account` the active one (persisting the selection), rebuilds the API service
+    /// against its data store, and starts its session.
+    private func activate(_ account: Account) {
+        activeAccountID = account.id
+        AccountStore.saveActiveID(account.id)
+        buildActiveService(for: account)
         startSession()
+    }
+
+    /// Removes an account's persisted chart history and its `WKWebsiteDataStore`.
+    private func purgeAccountStorage(id: UUID, dataStoreID: UUID, context: String) {
+        UserDefaults.standard.removeObject(forKey: AccountStore.usageHistoryKey(for: id))
+        WKWebsiteDataStore.remove(forIdentifier: dataStoreID) { err in
+            if let err { AppLogger.shared.error("\(context) data store remove failed: \(err.localizedDescription)") }
+        }
     }
 
     /// Tears down the previous service if any, then constructs a fresh `ClaudeAPIService`
@@ -128,11 +133,8 @@ extension UsageViewModel {
         LoginWindowController.shared.close()
         cancelInFlightWork()
         dismissPaceToasts(for: activeAccountID)
-        activeAccountID = id
-        AccountStore.saveActiveID(id)
-        buildActiveService(for: acct)
         AppLogger.shared.info("switched active account to \(acct.label) (\(id.uuidString.prefix(8)))")
-        startSession()
+        activate(acct)
     }
 
     /// Adds a new account record (with a placeholder label until `/api/account` resolves),
@@ -188,25 +190,19 @@ extension UsageViewModel {
             apiService = nil
         }
         // Dismiss any of this account's toasts before dropping its state.
-        if let s = statesByAccount[id] {
-            for tid in s.paceToastIDs.values { ToastWindowController.shared.dismiss(id: tid) }
-        }
+        dismissPaceToasts(for: id)
         let dataStoreID = accounts.first(where: { $0.id == id })?.dataStoreIdentifier
         accounts.removeAll { $0.id == id }
         statesByAccount.removeValue(forKey: id)
-        UserDefaults.standard.removeObject(forKey: AccountStore.usageHistoryKey(for: id))
         AccountStore.saveAccounts(accounts)
         if let dataStoreID {
-            WKWebsiteDataStore.remove(forIdentifier: dataStoreID) { err in
-                if let err { AppLogger.shared.error("data store remove failed: \(err.localizedDescription)") }
-            }
+            purgeAccountStorage(id: id, dataStoreID: dataStoreID, context: "removed")
+        } else {
+            UserDefaults.standard.removeObject(forKey: AccountStore.usageHistoryKey(for: id))
         }
         if wasActive {
             if let next = accounts.first {
-                activeAccountID = next.id
-                AccountStore.saveActiveID(next.id)
-                buildActiveService(for: next)
-                startSession()
+                activate(next)
             } else {
                 activeAccountID = nil
                 AccountStore.saveActiveID(nil)
@@ -267,8 +263,6 @@ extension UsageViewModel {
         let acct = Account(id: newID, label: String(localized: "Claude account"), dataStoreIdentifier: dataStoreID)
         accounts = [acct]
         AccountStore.saveAccounts(accounts)
-        activeAccountID = newID
-        AccountStore.saveActiveID(newID)
 
         // Move legacy usageHistory blob into the per-account namespace.
         if let legacyData = UserDefaults.standard.data(forKey: PrefKey.legacyUsageHistory) {
@@ -284,8 +278,7 @@ extension UsageViewModel {
         UserDefaults.standard.set(1, forKey: PrefKey.accountsMigrationVersion)
         AppLogger.shared.info("migration: imported legacy session as account \(newID.uuidString.prefix(8))")
 
-        buildActiveService(for: acct)
-        startSession()
+        activate(acct)
     }
 
     // MARK: - Chart History Persistence

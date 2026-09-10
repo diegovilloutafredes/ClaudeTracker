@@ -9,8 +9,9 @@ extension UsageViewModel {
 
     /// Compares previous `resetsAt` timestamps to the new response to detect window resets.
     ///
-    /// A window is considered reset when both of the following hold:
-    /// - The `resetsAt` timestamp has changed (the server issued a new window period), and
+    /// A window is considered reset when both of the following hold (see `isWindowReset`):
+    /// - The `resetsAt` timestamp jumped forward by more than an hour (the server issued a
+    ///   new window period — plain inequality would fire on rolling-expiry timestamp noise), and
     /// - Utilization has dropped below 5 % (guards against a timestamp refresh without an actual reset).
     ///
     /// On the first fetch (`old == nil`) timestamps are recorded as a baseline without firing a notification.
@@ -32,39 +33,11 @@ extension UsageViewModel {
         let prev = statesByAccount[accountID]?.previousResetsAt ?? [:]
         var resets: [String] = []
 
-        if notify5Hour,
-           let oldDate = prev["five_hour"],
-           let newWindow = new.fiveHour,
-           let newDate = newWindow.resetsAtDate,
-           isWindowReset(previous: oldDate, next: newDate, utilization: newWindow.utilization) {
-            resets.append(String(localized: "5-Hour Window"))
-        }
-
-        if notify7Day,
-           let oldDate = prev["seven_day"],
-           let newWindow = new.sevenDay,
-           let newDate = newWindow.resetsAtDate,
-           isWindowReset(previous: oldDate, next: newDate, utilization: newWindow.utilization) {
-            resets.append(String(localized: "7-Day Window"))
-        }
-
-        // Per-model windows are watched under the same toggles as their pace alerts —
-        // a window first-class enough to pace-alert on should announce its reset too.
-        if notify7Day, showModelWindows,
-           let oldDate = prev["seven_day_sonnet"],
-           let newWindow = new.sevenDaySonnet,
-           let newDate = newWindow.resetsAtDate,
-           isWindowReset(previous: oldDate, next: newDate, utilization: newWindow.utilization) {
-            resets.append(String(localized: "7-Day Sonnet"))
-        }
-
-        if notify7Day, showModelWindows {
-            for scoped in new.scopedModelWindows {
-                if let oldDate = prev[scoped.paceKey],
-                   let newDate = scoped.window.resetsAtDate,
-                   isWindowReset(previous: oldDate, next: newDate, utilization: scoped.window.utilization) {
-                    resets.append(String(format: String(localized: "7-Day %@"), scoped.label))
-                }
+        for tracked in new.trackedWindows where isWatched(tracked) {
+            if let oldDate = prev[tracked.key],
+               let newDate = tracked.window.resetsAtDate,
+               isWindowReset(previous: oldDate, next: newDate, utilization: tracked.window.utilization) {
+                resets.append(tracked.title)
             }
         }
 
@@ -76,20 +49,20 @@ extension UsageViewModel {
     }
 
     private func recordResetsAt(accountID: UUID, response: UsageResponse) {
-        if let w = response.fiveHour, let d = w.resetsAtDate {
-            statesByAccount[accountID, default: .init()].previousResetsAt["five_hour"] = d
-        }
-        if let w = response.sevenDay, let d = w.resetsAtDate {
-            statesByAccount[accountID, default: .init()].previousResetsAt["seven_day"] = d
-        }
-        if let w = response.sevenDaySonnet, let d = w.resetsAtDate {
-            statesByAccount[accountID, default: .init()].previousResetsAt["seven_day_sonnet"] = d
-        }
-        for scoped in response.scopedModelWindows {
-            if let d = scoped.window.resetsAtDate {
-                statesByAccount[accountID, default: .init()].previousResetsAt[scoped.paceKey] = d
+        for tracked in response.trackedWindows {
+            if let d = tracked.window.resetsAtDate {
+                statesByAccount[accountID, default: .init()].previousResetsAt[tracked.key] = d
             }
         }
+    }
+
+    /// Whether a window's resets and pace are alerted on. The built-in windows follow their
+    /// own toggles; per-model windows (legacy Sonnet + scoped limits) ride the 7-day toggle
+    /// and additionally require "Show per-model usage" — a window first-class enough to
+    /// pace-alert on should announce its reset too, and one that is hidden should do neither.
+    private func isWatched(_ tracked: TrackedWindow) -> Bool {
+        if tracked.isModelScoped { return notify7Day && showModelWindows }
+        return tracked.key == MenuBarWindow.fiveHour.rawValue ? notify5Hour : notify7Day
     }
 
     // MARK: - Notification Dispatch
@@ -109,24 +82,39 @@ extension UsageViewModel {
 
     /// Triggers a test pace notification through all currently enabled pace channels.
     func sendTestPaceNotification() {
+        _ = dispatchPaceAlert(name: MenuBarWindow.fiveHour.label, minsLeft: 25, rate: 45.0)
+    }
+
+    /// Fires a pace alert through the enabled pace channels. Returns the toast id when a
+    /// toast was shown, so the caller can dismiss it once the pace improves.
+    private func dispatchPaceAlert(name: String, minsLeft: Int, rate: Double) -> UUID? {
         let title = String(localized: "Approaching usage limit")
-        let body  = String(format: String(localized: "%@ fills in %d min at %@"),
-                           String(localized: "5-Hour Window"), 25, paceRateUnit.format(45.0))
+        let body  = String(format: String(localized: "%@ fills in %d min at %@"), name, minsLeft, paceRateUnit.format(rate))
+        var toastID: UUID?
         if paceToastEnabled {
-            ToastWindowController.shared.show(title: title, message: body,
+            toastID = ToastWindowController.shared.show(title: title, message: body,
                 icon: "exclamationmark.triangle.fill", iconColor: .orange,
                 duration: paceToastDuration, permanent: paceToastPermanent)
         }
         if paceSoundEnabled { NSSound(named: .init("Basso"))?.play() }
+        return toastID
+    }
+
+    /// Dismisses a window's pace toast (if any) and re-arms its warning flag.
+    private func clearPaceAlert(_ s: inout AccountState, key: String) {
+        if let tid = s.paceToastIDs.removeValue(forKey: key) {
+            ToastWindowController.shared.dismiss(id: tid)
+        }
+        s.paceWarned.remove(key)
     }
 
     // MARK: - Pace
 
     /// Appends the current utilization readings to the rolling history for each window.
     ///
-    /// Readings older than 5 minutes are discarded. If utilization for a window drops by
-    /// more than 20 percentage points compared to the last recorded value, the history is
-    /// cleared first — this handles window resets, which drop utilization back to near zero.
+    /// Readings older than 5 minutes are discarded. The history is cleared first when
+    /// `shouldResetPaceHistory` says the window reset: a drop of more than 20 points, or a
+    /// drop from ≥ 5 % to below 5 % (which catches resets the 20-point rule would miss).
     func recordHistory(accountID: UUID, response: UsageResponse) {
         let now = Date()
         let cutoff = now.addingTimeInterval(-5 * 60)
@@ -137,21 +125,15 @@ extension UsageViewModel {
             var history = s.utilizationHistory[key] ?? []
             if let last = history.last, shouldResetPaceHistory(last: last.1, current: utilization) {
                 history = []
-                s.paceWarned.remove(key)
-                if let tid = s.paceToastIDs.removeValue(forKey: key) {
-                    ToastWindowController.shared.dismiss(id: tid)
-                }
+                clearPaceAlert(&s, key: key)
             }
             history.append((now, utilization))
             s.utilizationHistory[key] = history.filter { $0.0 >= cutoff }
             statesByAccount[accountID] = s
         }
 
-        append(key: "five_hour",        utilization: response.fiveHour?.utilization)
-        append(key: "seven_day",         utilization: response.sevenDay?.utilization)
-        append(key: "seven_day_sonnet",  utilization: response.sevenDaySonnet?.utilization)
-        for scoped in response.scopedModelWindows {
-            append(key: scoped.paceKey, utilization: scoped.window.utilization)
+        for tracked in response.trackedWindows {
+            append(key: tracked.key, utilization: tracked.window.utilization)
         }
     }
 
@@ -171,26 +153,14 @@ extension UsageViewModel {
             return
         }
 
-        var candidates: [(key: String, name: String, watched: Bool)] = [
-            ("five_hour",        String(localized: "5-Hour Window"), notify5Hour),
-            ("seven_day",        String(localized: "7-Day Window"),  notify7Day),
-            ("seven_day_sonnet", String(localized: "7-Day Sonnet"),  notify7Day && showModelWindows),
-        ]
-        for scoped in response.scopedModelWindows {
-            candidates.append((scoped.paceKey,
-                               String(format: String(localized: "7-Day %@"), scoped.label),
-                               notify7Day && showModelWindows))
-        }
+        let candidates = response.trackedWindows.map { (key: $0.key, name: $0.title, watched: isWatched($0)) }
 
         for (key, name, watched) in candidates {
             guard watched else {
                 // A window that just became unwatched (e.g. "Show per-model usage"
                 // toggled off) must not strand its toast on screen or stay warned.
                 var s = statesByAccount[accountID] ?? .init()
-                if let tid = s.paceToastIDs.removeValue(forKey: key) {
-                    ToastWindowController.shared.dismiss(id: tid)
-                }
-                s.paceWarned.remove(key)
+                clearPaceAlert(&s, key: key)
                 statesByAccount[accountID] = s
                 continue
             }
@@ -199,15 +169,9 @@ extension UsageViewModel {
             var s = statesByAccount[accountID] ?? .init()
             if isConcerning, !s.paceWarned.contains(key), let pd = paceData, let projHours = pd.projectedHours {
                 s.paceWarned.insert(key)
-                let minsLeft = max(1, Int(projHours * 60))
-                let title = String(localized: "Approaching usage limit")
-                let body  = String(format: String(localized: "%@ fills in %d min at %@"), name, minsLeft, paceRateUnit.format(pd.rate))
-                if paceToastEnabled {
-                    s.paceToastIDs[key] = ToastWindowController.shared.show(title: title, message: body,
-                        icon: "exclamationmark.triangle.fill", iconColor: .orange,
-                        duration: paceToastDuration, permanent: paceToastPermanent)
+                if let tid = dispatchPaceAlert(name: name, minsLeft: max(1, Int(projHours * 60)), rate: pd.rate) {
+                    s.paceToastIDs[key] = tid
                 }
-                if paceSoundEnabled { NSSound(named: .init("Basso"))?.play() }
             } else if !isConcerning, s.paceWarned.contains(key) {
                 // Pace improved past the threshold — dismiss the alert even if set to
                 // permanent, and re-arm so a later re-acceleration in the same window
@@ -226,15 +190,13 @@ extension UsageViewModel {
             statesByAccount[accountID] = s
         }
 
-        // A scoped toast whose limit entry vanished from the response never reaches the
-        // improvement branch above (its key drops out of the candidates) — sweep it here.
+        // A toast for a window that vanished from the response (a scoped limit entry gone,
+        // or a built-in window the API nulled out — Team orgs null `five_hour` when idle)
+        // never reaches the improvement branch above — sweep it here so it can re-arm.
         var s = statesByAccount[accountID] ?? .init()
         let candidateKeys = Set(candidates.map(\.key))
-        for key in s.paceToastIDs.keys where key.hasPrefix("scoped.") && !candidateKeys.contains(key) {
-            if let tid = s.paceToastIDs.removeValue(forKey: key) {
-                ToastWindowController.shared.dismiss(id: tid)
-            }
-            s.paceWarned.remove(key)
+        for key in s.paceToastIDs.keys where !candidateKeys.contains(key) {
+            clearPaceAlert(&s, key: key)
         }
         statesByAccount[accountID] = s
     }
@@ -265,11 +227,8 @@ extension UsageViewModel {
             models[key] = utilization
             if let rate = pace(accountID: accountID, key: key)?.rate { modelPaces[key] = rate }
         }
-        if let sonnet = response.sevenDaySonnet {
-            recordModel(key: "seven_day_sonnet", utilization: sonnet.utilization)
-        }
-        for scoped in response.scopedModelWindows {
-            recordModel(key: scoped.paceKey, utilization: scoped.window.utilization)
+        for tracked in response.trackedWindows where tracked.isModelScoped {
+            recordModel(key: tracked.key, utilization: tracked.window.utilization)
         }
 
         let point = UsageDataPoint(

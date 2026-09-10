@@ -36,7 +36,7 @@ final class LoginWindowController {
         onSessionFound: @escaping (String) -> Void,
         onCancel: (() -> Void)? = nil
     ) {
-        apiService.onPopupRequested = { [weak self] popupView, _ in
+        apiService.onPopupRequested = { [weak self] popupView in
             self?.showPopup(webView: popupView)
         }
         apiService.onPopupDismissed = { [weak self] in

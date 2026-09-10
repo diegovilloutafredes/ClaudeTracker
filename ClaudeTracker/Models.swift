@@ -8,14 +8,38 @@ func urgencyColor(_ urgency: Double) -> Color {
     return Color(hue: 0.33 * (1 - t), saturation: 0.85, brightness: 0.9)
 }
 
+/// AppKit twin of `urgencyColor` for the menu bar image. Same formula; the unit test
+/// `testUrgencyNSColorMatchesSwiftUIGradient` pins both to the same sRGB components so the
+/// menu bar and the popover can never drift apart in hue.
+func urgencyNSColor(_ urgency: Double) -> NSColor {
+    let t = max(0, min(1, urgency))
+    return NSColor(hue: 0.33 * (1 - t), saturation: 0.85, brightness: 0.9, alpha: 1.0)
+}
+
+/// Pace state as an urgency value on the same 0…1 scale as utilization, so the menu bar
+/// can take `max(utilization, pace)` and still agree with the popover's `PaceBand`:
+/// safe → 0, close → 0.7, over → 1.0. The single source for every pace color.
+func paceUrgency(projectedHours: Double, hoursToReset: Double) -> Double {
+    switch PaceBand(projectedHours: projectedHours, hoursToReset: hoursToReset) {
+    case .safe:  return 0
+    case .close: return 0.7
+    case .over:  return 1.0
+    }
+}
+
 /// Shared 3-band color for pace UI (rate text, outlook message, chart projection line).
 /// `proj` is projected hours to 100%; `hoursToReset` is time until window reset.
 func paceUrgencyColor(proj: Double, hoursToReset: Double) -> Color {
-    switch PaceBand(projectedHours: proj, hoursToReset: hoursToReset) {
-    case .safe:  return .secondary
-    case .close: return urgencyColor(0.7)
-    case .over:  return urgencyColor(1.0)
-    }
+    let urgency = paceUrgency(projectedHours: proj, hoursToReset: hoursToReset)
+    return urgency == 0 ? .secondary : urgencyColor(urgency)
+}
+
+/// Pace accent for a window's row and its charts: neutral unless there is a projection,
+/// a reset to measure it against, and the window is still live. One helper so the pace
+/// rate text, the pace chart, and the forecast line can never disagree.
+func paceAccentColor(projectedHours: Double?, resetsAt: Date?, isStale: Bool, now: Date = Date()) -> Color {
+    guard !isStale, let proj = projectedHours, let reset = resetsAt else { return .secondary }
+    return paceUrgencyColor(proj: proj, hoursToReset: reset.timeIntervalSince(now) / 3600)
 }
 
 /// Returns true when `remote` is a higher semantic version than `current`.
@@ -346,10 +370,9 @@ struct UsageResponse: Codable, Sendable {
         self.spend = (try? c.decodeIfPresent(Spend.self, forKey: .spend)) ?? nil
     }
 
-    /// The windows shown in the UI, in display order.
-    ///
-    /// The Opus and Sonnet sub-windows are omitted — they are informational breakdowns
-    /// of the 7-day total and do not represent independent rate limits the user can act on.
+    /// The two built-in windows (5-hour, 7-day) that are present, in display order — the
+    /// windows the menu bar picker can show. Per-model windows (legacy Sonnet, scoped
+    /// limits) are appended by `trackedWindows`.
     var allWindows: [(MenuBarWindow, UsageWindow)] {
         var result: [(MenuBarWindow, UsageWindow)] = []
         if let w = fiveHour { result.append((.fiveHour, w)) }
@@ -363,6 +386,24 @@ struct UsageResponse: Codable, Sendable {
     /// `surface` axis, so same-model entries are plausible) are collapsed to the
     /// max-percent entry — a duplicate would collide on ForEach identity and interleave
     /// two series into one pace-history bucket.
+    /// Every window the app tracks, in display order: the built-in 5-hour and 7-day
+    /// windows, the legacy Sonnet sub-window, then each model-scoped weekly limit.
+    var trackedWindows: [TrackedWindow] {
+        var result = allWindows.map {
+            TrackedWindow(key: $0.rawValue, title: $0.label, window: $1, isModelScoped: false)
+        }
+        if let sonnet = sevenDaySonnet {
+            result.append(TrackedWindow(key: "seven_day_sonnet", title: String(localized: "7-Day Sonnet"),
+                                        window: sonnet, isModelScoped: true))
+        }
+        for scoped in scopedModelWindows {
+            result.append(TrackedWindow(key: scoped.paceKey,
+                                        title: String(format: String(localized: "7-Day %@"), scoped.label),
+                                        window: scoped.window, isModelScoped: true))
+        }
+        return result
+    }
+
     var scopedModelWindows: [ScopedModelWindow] {
         var result: [ScopedModelWindow] = []
         var indexByLabel: [String: Int] = [:]
@@ -390,8 +431,9 @@ struct UsageLimit: Codable, Sendable {
     let percent: Double?
     let resetsAt: String?
     let scope: UsageLimitScope?
-    /// Server-side urgency; only "normal" observed so far. Surfaced only in the
-    /// severity log until non-normal values and their semantics are seen live.
+    /// Server-side urgency. Observed live: "normal", "warning" (from roughly 70% utilization),
+    /// "critical" (from roughly 90%) — inferred from nine sightings, so the bands are approximate.
+    /// Surfaced only in the severity log; the UI keeps its own continuous urgency gradient.
     let severity: String?
     /// Observed live but semantics unclear: a dormant 0% window can be `true` while a
     /// running one is `false` — it is NOT "currently binding". Decoded for the severity
@@ -539,6 +581,24 @@ struct ScopedModelWindow: Sendable {
     let window: UsageWindow
     /// History-bucket key for pace tracking, distinct from the legacy window keys.
     var paceKey: String { "scoped." + label }
+}
+
+/// One rate-limit window the app tracks: the key its pace/history buckets and
+/// `previousResetsAt` entry use, its localized row title, and the window itself.
+/// The single enumeration behind reset detection, pace history, pace alerts, chart
+/// snapshots, and the popover rows — which used to each rebuild this list.
+struct TrackedWindow: Identifiable, Sendable {
+    /// "five_hour", "seven_day", "seven_day_sonnet", or "scoped.<model>".
+    let key: String
+    /// Localized, e.g. "5-Hour Window", "7-Day Window", "7-Day Sonnet", "7-Day Fable".
+    let title: String
+    let window: UsageWindow
+    /// True for the legacy Sonnet sub-window and model-scoped limits: shown and alerted
+    /// only under `showModelWindows`.
+    let isModelScoped: Bool
+    var id: String { key }
+    /// Every window but the 5-hour one spans a week.
+    var isSevenDay: Bool { key != MenuBarWindow.fiveHour.rawValue }
 }
 
 /// A single rate-limit window returned by the usage API.
@@ -804,14 +864,9 @@ func chartSeries(for response: UsageResponse?) -> [ChartSeries] {
         ChartSeries(key: MenuBarWindow.sevenDay.rawValue, title: MenuBarWindow.sevenDay.shortLabel,
                     window: response?.sevenDay, duration: week),
     ]
-    if let sonnet = response?.sevenDaySonnet {
-        result.append(ChartSeries(key: "seven_day_sonnet", title: String(localized: "7-Day Sonnet"),
-                                  window: sonnet, duration: week))
-    }
-    for scoped in response?.scopedModelWindows ?? [] {
-        result.append(ChartSeries(key: scoped.paceKey,
-                                  title: String(format: String(localized: "7-Day %@"), scoped.label),
-                                  window: scoped.window, duration: week))
+    for tracked in response?.trackedWindows ?? [] where tracked.isModelScoped {
+        result.append(ChartSeries(key: tracked.key, title: tracked.title,
+                                  window: tracked.window, duration: week))
     }
     return result
 }

@@ -50,10 +50,8 @@ struct SettingsView: View {
         ) { account in
             TextField("Name", text: $renameDraft)
             Button("Save") {
-                let trimmed = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    viewModel.renameAccount(account.id, to: trimmed)
-                }
+                // renameAccount trims and ignores an empty name itself.
+                viewModel.renameAccount(account.id, to: renameDraft)
                 pendingRename = nil
             }
             Button("Cancel", role: .cancel) { pendingRename = nil }

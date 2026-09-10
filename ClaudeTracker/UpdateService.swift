@@ -107,7 +107,7 @@ enum UpdateDownloadState {
 /// check schedule, the optional auto-install, and download/install progress.
 ///
 /// Extracted from `UsageViewModel` so the view model stays focused on usage state.
-/// `UsageViewModel` holds it as `let updates`; views read `viewModel.updates.<x>` and
+/// `UsageViewModel` holds it as `var updates` (reference-writable for `@Bindable`); views read `viewModel.updates.<x>` and
 /// SwiftUI's transitive `@Observable` tracking keeps them in sync. Side-effecting
 /// startup happens in `start()` (called at app launch), never in an initializer.
 @Observable @MainActor
@@ -363,12 +363,11 @@ final class UpdateService {
     }
 
     private enum UpdateError: LocalizedError {
-        case extractionFailed, appNotFound, installationFailed, versionMismatch
+        case extractionFailed, appNotFound, versionMismatch
         var errorDescription: String? {
             switch self {
             case .extractionFailed:   return String(localized: "Failed to extract update")
             case .appNotFound:        return String(localized: "Update package is invalid")
-            case .installationFailed: return String(localized: "Installation failed")
             case .versionMismatch:    return String(localized: "Update package version mismatch")
             }
         }

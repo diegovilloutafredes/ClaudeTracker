@@ -9,6 +9,30 @@ import Charts
 /// scroll view and the scroller moves outward with them.
 let chartsScrollGutter: CGFloat = 14
 
+/// "Collecting…" stand-in for a chart that has fewer than two samples (or a section with
+/// every chart filtered out) — an empty pane reads as broken, not as empty.
+private struct CollectingPlaceholder: View {
+    let height: CGFloat
+    let scale: CGFloat
+    var body: some View {
+        Text("Collecting…")
+            .font(.system(size: 9 * scale))
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(height: height * scale)
+    }
+}
+
+/// The sample nearest the hovered instant, or nil when none is close enough: only a sample
+/// within 5% of the visible span (min 10 min) counts — inside a data gap (Mac asleep) there
+/// is no reading, and snapping to one hours away would present it as belonging to the
+/// hovered instant. Shared by the mini charts and the forecast chart.
+func nearestSample(in pairs: [(Date, Double)], to t: Date, span: TimeInterval) -> (Date, Double)? {
+    guard let nearest = pairs.min(by: { abs($0.0.timeIntervalSince(t)) < abs($1.0.timeIntervalSince(t)) }),
+          abs(nearest.0.timeIntervalSince(t)) <= max(span * 0.05, 600) else { return nil }
+    return nearest
+}
+
 /// Hour:minute axis/hover labels for spans under ~a day; abbreviated month + day beyond.
 /// The hour cycle is pinned to the Time format setting so chart times match the reset line.
 private func chartAxisFormat(forSpan span: TimeInterval, use24Hour: Bool) -> Date.FormatStyle {
@@ -148,9 +172,13 @@ struct MenuBarChartsView: View {
         // Same staleness gate as the Usage tab's rows: after a reset that passed while the
         // app wasn't polling, a forecast anchored to the expired window would present stale
         // data as current.
-        let forecastWindow: UsageWindow? = showForecastChart
-            ? series.window.flatMap { viewModel.isWindowStale($0) ? nil : $0 }
-            : nil
+        let liveWindow: UsageWindow? = series.window.flatMap { viewModel.isWindowStale($0) ? nil : $0 }
+        let forecastWindow: UsageWindow? = showForecastChart ? liveWindow : nil
+        // Same accent as the Usage tab's pace line for this window — the pace chart used to
+        // color a %/hr rate as if it were a utilization percent.
+        let paceAccent = paceAccentColor(projectedHours: viewModel.pace(for: key)?.projectedHours,
+                                         resetsAt: liveWindow?.resetsAtDate,
+                                         isStale: liveWindow == nil)
         VStack(alignment: .leading, spacing: 14 * scale) {
             Text(series.title)
                 .font(sf(11, .semibold))
@@ -176,6 +204,7 @@ struct MenuBarChartsView: View {
                     xDomain: xDomain,
                     selectedTime: selectedTime,
                     paceRateUnit: viewModel.paceRateUnit,
+                    accent: paceAccent,
                     scale: scale,
                     use24Hour: viewModel.use24HourTime
                 )
@@ -186,6 +215,7 @@ struct MenuBarChartsView: View {
                     value: { $0.utilization(for: key) },
                     window: w,
                     paceRate: viewModel.pace(for: key)?.rate,
+                    accent: paceAccent,
                     windowDuration: series.duration,
                     selectedTime: selectedTime
                 )
@@ -193,21 +223,9 @@ struct MenuBarChartsView: View {
             // Forecast alone, on a window with no live data (nothing fetched yet, or stale),
             // would leave the section as a bare title — which reads as broken, not as empty.
             if !showUtilizationChart, !showPaceChart, forecastWindow == nil {
-                Text("Collecting…")
-                    .font(sf(9))
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .frame(height: 50 * scale)
+                CollectingPlaceholder(height: 50, scale: scale)
             }
         }
-    }
-
-    private func forecastAccentColor(paceRate: Double?, lastVal: Double, lastDate: Date?, resetDate: Date) -> Color {
-        guard let rate = paceRate, lastVal < 100, lastDate != nil else { return .secondary }
-        return paceUrgencyColor(
-            proj: (100.0 - lastVal) / rate,
-            hoursToReset: resetDate.timeIntervalSinceNow / 3600
-        )
     }
 
     @ViewBuilder
@@ -216,6 +234,7 @@ struct MenuBarChartsView: View {
         value: (UsageDataPoint) -> Double?,
         window: UsageWindow,
         paceRate: Double?,
+        accent: Color,
         windowDuration: TimeInterval,
         selectedTime: Binding<Date?>
     ) -> some View {
@@ -234,16 +253,14 @@ struct MenuBarChartsView: View {
                 return ld.addingTimeInterval((100.0 - lastVal) / rate * 3600)
             }
             let xMax = [resetDate, projEnd].compactMap { $0 }.max() ?? resetDate
-            let accentColor = forecastAccentColor(paceRate: paceRate, lastVal: lastVal, lastDate: lastDate, resetDate: resetDate)
+            let accentColor = accent
             let span = xMax.timeIntervalSince(windowStart)
             let xFmt = chartAxisFormat(forSpan: span, use24Hour: viewModel.use24HourTime)
             // Same gap cutoff as MiniChartView: only pair the cursor with a sample that
             // is actually near it (5% of the span, min 10 min).
             let hovered: (Date, Double)? = selectedTime.wrappedValue.flatMap { t in
-                guard (windowStart...xMax).contains(t),
-                      let nearest = pairs.min(by: { abs($0.0.timeIntervalSince(t)) < abs($1.0.timeIntervalSince(t)) }),
-                      abs(nearest.0.timeIntervalSince(t)) <= max(span * 0.05, 600) else { return nil }
-                return nearest
+                guard (windowStart...xMax).contains(t) else { return nil }
+                return nearestSample(in: pairs, to: t, span: span)
             }
             let hoveredLabel: String? = hovered.map { t, v in
                 let windowDurationSecs = resetDate.timeIntervalSince(windowStart)
@@ -272,11 +289,7 @@ struct MenuBarChartsView: View {
                     }
                 }
                 if pairs.count < 2 {
-                    Text("Collecting…")
-                        .font(sf(9))
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .frame(height: 60 * scale)
+                    CollectingPlaceholder(height: 60, scale: scale)
                 } else {
                     forecastChartBody(
                         pairs: pairs, lastDate: lastDate, lastVal: lastVal, projEnd: projEnd,
@@ -411,6 +424,9 @@ private struct MiniChartView: View {
     let xDomain: ClosedRange<Date>
     @Binding var selectedTime: Date?
     let paceRateUnit: PaceRateUnit?
+    /// Fixed accent (the window's pace band) for the pace chart; nil colors by the last
+    /// value's utilization gradient, which is only meaningful for the utilization chart.
+    var accent: Color? = nil
     let scale: CGFloat
     let use24Hour: Bool
 
@@ -426,22 +442,16 @@ private struct MiniChartView: View {
         let values: [Double] = filtered.compactMap(value)
         let peak = values.max() ?? 0
         let avg = values.isEmpty ? 0.0 : values.reduce(0, +) / Double(values.count)
-        let color: Color = urgencyColor(min((values.last ?? 0) / 100.0, 1.0))
+        let color: Color = accent ?? urgencyColor(min((values.last ?? 0) / 100.0, 1.0))
         let span = xDomain.upperBound.timeIntervalSince(xDomain.lowerBound)
         let xFormat = chartAxisFormat(forSpan: span, use24Hour: use24Hour)
-        let hovered: (Date, Double)? = {
-            guard let t = selectedTime else { return nil }
+        let hovered: (Date, Double)? = selectedTime.flatMap { t in
             let pairs = filtered.compactMap { dp -> (Date, Double)? in
                 guard let v = value(dp) else { return nil }
                 return (dp.timestamp, v)
             }
-            // Only match a sample near the cursor (5% of the visible span, min 10 min):
-            // inside a data gap (Mac asleep) there is no reading, and snapping to one
-            // hours away would present it as belonging to the hovered instant.
-            guard let nearest = pairs.min(by: { abs($0.0.timeIntervalSince(t)) < abs($1.0.timeIntervalSince(t)) }),
-                  abs(nearest.0.timeIntervalSince(t)) <= max(span * 0.05, 600) else { return nil }
-            return nearest
-        }()
+            return nearestSample(in: pairs, to: t, span: span)
+        }
         let displayValue = hovered?.1 ?? (values.last ?? 0)
         let nowLabel: String = {
             if let (t, v) = hovered {
@@ -464,11 +474,7 @@ private struct MiniChartView: View {
                 }
             }
             if values.count < 2 {
-                Text("Collecting…")
-                    .font(sf(9))
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .frame(height: 50 * scale)
+                CollectingPlaceholder(height: 50, scale: scale)
             } else {
                 Chart {
                     ForEach(filtered) { dp in
