@@ -436,6 +436,12 @@ final class UsageViewModel {
         if !diag.isEmpty, diag != old.map(usageDiagnostics) {
             AppLogger.shared.info("usage diagnostics: \(diag)")
         }
+        // `seven_day_breakdown` is the quiet live shape now, so it gets its own line rather
+        // than making `usageDiagnostics` non-empty on every normal payload.
+        let breakdown = breakdownSignature(new)
+        if !breakdown.isEmpty, breakdown != old.map(breakdownSignature) {
+            AppLogger.shared.info("usage breakdown: \(breakdown)")
+        }
     }
 
 /// Schedules the next poll after an adaptive delay derived from current utilization and pace.
@@ -457,7 +463,8 @@ final class UsageViewModel {
             let stem = (error ?? "Error").components(separatedBy: " (retry in ").first ?? "Error"
             statesByAccount[id, default: .init()].error = String(format: String(localized: "%@ (retry in %ds)"), stem, Int(interval))
         }
-        AppLogger.shared.info("poll: next in \(String(format: "%.1f", interval))s (base=\(String(format: "%.1f", base))s util=\(String(format: "%.0f", maxUtilization))%)")
+        AppLogger.shared.info("poll: next in \(String(format: "%.1f", interval))s "
+                              + "(base=\(String(format: "%.1f", base))s util=\(String(format: "%.0f", maxUtilization))%)")
         timer = Task { [weak self] in
             try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled else { return }

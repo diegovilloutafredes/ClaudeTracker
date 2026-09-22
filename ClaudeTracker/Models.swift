@@ -330,6 +330,9 @@ struct UsageResponse: Codable, Sendable {
     /// Newer credit-spend object that mirrors `extraUsage` (observed 2026-09). Decoded
     /// so its relationship to `extraUsage` can be learned from the log — **never displayed**.
     let spend: Spend?
+    /// Per-surface split of the weekly window (first populated 2026-09-21). Decoded and
+    /// logged via `breakdownSignature` so its semantics can be learned — **never displayed**.
+    let sevenDayBreakdown: SevenDayBreakdown?
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
@@ -339,11 +342,12 @@ struct UsageResponse: Codable, Sendable {
         case extraUsage = "extra_usage"
         case limits
         case spend
+        case sevenDayBreakdown = "seven_day_breakdown"
     }
 
     init(fiveHour: UsageWindow?, sevenDay: UsageWindow?, sevenDayOpus: UsageWindow?,
          sevenDaySonnet: UsageWindow?, extraUsage: ExtraUsage?, limits: [UsageLimit]? = nil,
-         spend: Spend? = nil) {
+         spend: Spend? = nil, sevenDayBreakdown: SevenDayBreakdown? = nil) {
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
         self.sevenDayOpus = sevenDayOpus
@@ -351,6 +355,7 @@ struct UsageResponse: Codable, Sendable {
         self.extraUsage = extraUsage
         self.limits = limits
         self.spend = spend
+        self.sevenDayBreakdown = sevenDayBreakdown
     }
 
     /// Fail-soft decoding: a malformed sub-window (e.g. the API ships `"utilization": null`
@@ -368,6 +373,7 @@ struct UsageResponse: Codable, Sendable {
         self.limits = ((try? c.decodeIfPresent([FailableLimit].self, forKey: .limits)) ?? nil)
             .map { $0.compactMap(\.limit) }
         self.spend = (try? c.decodeIfPresent(Spend.self, forKey: .spend)) ?? nil
+        self.sevenDayBreakdown = (try? c.decodeIfPresent(SevenDayBreakdown.self, forKey: .sevenDayBreakdown)) ?? nil
     }
 
     /// The two built-in windows (5-hour, 7-day) that are present, in display order — the
@@ -548,6 +554,63 @@ func usageDiagnostics(_ r: UsageResponse) -> String {
         }
     }
     return parts.joined(separator: " ")
+}
+
+/// The top-level `seven_day_breakdown` object: how the weekly window's usage splits across
+/// surfaces (`claude_code`, `chat`, `cowork`, `other`). One live sample (100/0/0/0 while the
+/// weekly window sat at 3%) reads as a *share* of usage, not a utilization. Every field is
+/// lenient so a shape change can never nil the object or fail the response.
+struct SevenDayBreakdown: Codable, Sendable {
+    let asOf: String?
+    let windowStartedAt: String?
+    let rows: [BreakdownRow]?
+
+    enum CodingKeys: String, CodingKey {
+        case asOf = "as_of"
+        case windowStartedAt = "window_started_at"
+        case rows
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        asOf = (try? c.decodeIfPresent(String.self, forKey: .asOf)) ?? nil
+        windowStartedAt = (try? c.decodeIfPresent(String.self, forKey: .windowStartedAt)) ?? nil
+        rows = (try? c.decodeIfPresent([BreakdownRow].self, forKey: .rows)) ?? nil
+    }
+}
+
+/// One surface row of `seven_day_breakdown`.
+struct BreakdownRow: Codable, Sendable {
+    let key: String?
+    let displayName: String?
+    let percent: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case key, percent
+        case displayName = "display_name"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = (try? c.decodeIfPresent(String.self, forKey: .key)) ?? nil
+        displayName = (try? c.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
+        percent = (try? c.decodeIfPresent(Double.self, forKey: .percent)) ?? nil
+    }
+}
+
+/// Log signature of `seven_day_breakdown`: `key:percent` per row, sorted by key so a
+/// server-side reorder never reads as a change. `as_of` is excluded (it changes on every
+/// response) and so is `window_started_at` (resets are logged elsewhere). Empty when absent.
+/// shortcut: on a mixed-surface account the shares shift by whole percents often; if the
+/// log gets chatty, drop the percents and keep only the row keys.
+func breakdownSignature(_ r: UsageResponse) -> String {
+    (r.sevenDayBreakdown?.rows ?? [])
+        .compactMap { row -> String? in
+            guard let key = row.key else { return nil }
+            return "\(key):\(row.percent.map { String(format: "%.0f", $0) } ?? "nil")"
+        }
+        .sorted()
+        .joined(separator: ",")
 }
 
 /// The `scope` object of a `weekly_scoped` limit entry.
