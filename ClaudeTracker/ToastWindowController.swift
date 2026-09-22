@@ -87,14 +87,14 @@ final class ToastWindowController {
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = fadeDuration
             panel.animator().alphaValue = 0
-        }, completionHandler: {
+        }, completionHandler: { [weak self] in
             // AppKit invokes the completion on the main thread; assumeIsolated makes
             // that visible to strict concurrency.
             MainActor.assumeIsolated {
                 panel.close()
             }
             // Shift remaining toasts up after the dismissed one disappears.
-            Task { @MainActor [weak self] in
+            Task { @MainActor in
                 self?.shiftAllToCorrectPositions()
             }
         })
