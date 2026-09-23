@@ -193,6 +193,10 @@ func pinnedHourCycleLocale(use24Hour: Bool, base: Locale = .current) -> Locale {
 /// reads ambiguous when the reset lands on today's weekday next week).
 func resetTimeText(reset: Date, now: Date, use24Hour: Bool, includeDate: Bool = false,
                    calendar: Calendar = .current, locale: Locale = .current) -> String {
+    // resets_at lands a fraction of a second either side of the real boundary from poll to poll,
+    // and the formatter truncates seconds — snap to the nearest minute (before the same-day check)
+    // so the shown time doesn't flip between e.g. 17:59 and 18:00.
+    let reset = Date(timeIntervalSinceReferenceDate: (reset.timeIntervalSinceReferenceDate / 60).rounded() * 60)
     let pinned = pinnedHourCycleLocale(use24Hour: use24Hour, base: locale)
 
     var style = Date.FormatStyle(locale: pinned, calendar: calendar, timeZone: calendar.timeZone)

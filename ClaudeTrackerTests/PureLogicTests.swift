@@ -405,6 +405,27 @@ final class PureLogicTests: XCTestCase {
         XCTAssertEqual(normalizedTime(text), "17:30")
     }
 
+    func testResetTimeTextRoundsJitteredResetToNearestMinute() {
+        let cal = gmtCalendar()
+        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 10, minute: 0))!
+        let boundary = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 18, minute: 0))!
+        // Live resets_at lands a fraction of a second either side of the boundary from poll to
+        // poll (20:59:59.546 vs 21:00:00.108 observed 2026-09-23); both must read as the same minute.
+        let early = resetTimeText(reset: boundary.addingTimeInterval(-0.454), now: now, use24Hour: true, calendar: cal, locale: enUS)
+        let late = resetTimeText(reset: boundary.addingTimeInterval(0.108), now: now, use24Hour: true, calendar: cal, locale: enUS)
+        XCTAssertEqual(normalizedTime(early), "18:00")
+        XCTAssertEqual(normalizedTime(late), "18:00")
+    }
+
+    func testResetTimeTextRoundsBeforeTheSameDayCheck() {
+        let cal = gmtCalendar()
+        // A reset jittered to just before midnight is tomorrow's 00:00 — it needs the weekday.
+        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 10, minute: 0))!
+        let midnight = cal.date(from: DateComponents(year: 2026, month: 7, day: 2, hour: 0, minute: 0))!
+        let text = resetTimeText(reset: midnight.addingTimeInterval(-0.4), now: now, use24Hour: true, calendar: cal, locale: enUS)
+        XCTAssertEqual(normalizedTime(text), "Thu 00:00")
+    }
+
     func testPrefers24HourClockByLocale() {
         XCTAssertFalse(prefers24HourClock(Locale(identifier: "en_US")))  // h12
         XCTAssertTrue(prefers24HourClock(Locale(identifier: "de_DE")))   // h23
