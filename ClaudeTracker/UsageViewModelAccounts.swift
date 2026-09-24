@@ -162,6 +162,9 @@ extension UsageViewModel {
             apiService: svc,
             onSessionFound: handleSessionFound,
             onCancel: { [weak self] in
+                // willClose runs this before LoginView.onDisappear stops the cookie poll, and
+                // fetchUsage waits while that poll runs — stop it first, or polling stays dead.
+                svc.stopCookiePolling()
                 guard let self, self.activeAccountID == id else { return }
                 self.startPolling()
             }
