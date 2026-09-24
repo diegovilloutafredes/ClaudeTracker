@@ -179,14 +179,35 @@ extension UsageViewModel {
         sessionTask?.cancel()
         sessionTask = Task { [weak self] in
             guard let self else { return }
-            if let info = try? await svc.fetchAccountInfo() {
-                guard !Task.isCancelled else { return }
-                statesByAccount[id, default: .init()].accountInfo = info
-                applyAccountInfoToRoster(id: id, info: info)
-            }
+            await refreshAccountInfo(id: id, svc: svc)
             guard !Task.isCancelled, id == activeAccountID else { return }
             startPolling()
         }
+    }
+
+    /// Fetches `/api/account` into `id`'s bucket and roster row. A failure is logged and left
+    /// to `retryAccountInfoIfMissing` — it used to be swallowed with no retry, so a launch
+    /// before the network was up lost the plan badge and email for the whole session.
+    func refreshAccountInfo(id: UUID, svc: ClaudeAPIService) async {
+        statesByAccount[id, default: .init()].accountInfoAttemptedAt = Date()
+        do {
+            let info = try await svc.fetchAccountInfo()
+            guard !Task.isCancelled else { return }
+            statesByAccount[id, default: .init()].accountInfo = info
+            applyAccountInfoToRoster(id: id, info: info)
+        } catch {
+            // A switch cancels the session task (and tears the service down): not a failure.
+            if !Task.isCancelled { AppLogger.shared.error("account info fetch failed: \(error.localizedDescription)") }
+        }
+    }
+
+    /// Re-fetches account info after a successful poll while it is still missing — at most every
+    /// 5 minutes, so a persistently failing `/api/account` can't double the request rate.
+    func retryAccountInfoIfMissing(id: UUID, svc: ClaudeAPIService) {
+        guard let state = statesByAccount[id], state.accountInfo == nil,
+              Date().timeIntervalSince(state.accountInfoAttemptedAt ?? .distantPast) > 300 else { return }
+        statesByAccount[id]?.accountInfoAttemptedAt = Date()
+        Task { [weak self] in await self?.refreshAccountInfo(id: id, svc: svc) }
     }
 
     /// Switches the active account: cancels in-flight work, dismisses any toasts that

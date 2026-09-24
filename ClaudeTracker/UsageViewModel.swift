@@ -44,6 +44,11 @@ final class UsageViewModel {
     var lastUpdated: Date? { activeState?.lastUpdated }
     /// Active account's account profile (display name, email, subscription label).
     var accountInfo: AccountInfo? { activeState?.accountInfo }
+    /// The active account's plan badge: the live `/api/account` value, else the copy the roster
+    /// saved in an earlier session — so a failed fetch doesn't blank the header.
+    var activeSubscriptionLabel: String? {
+        accountInfo?.subscriptionLabel ?? accounts.first { $0.id == activeAccountID }?.subscriptionLabel
+    }
     /// True when an account is active and its session is healthy. False during migration,
     /// when no accounts exist, when the active id is missing from the roster (a reclaimed
     /// placeholder, an undecodable roster), or when a 401 marked the active session expired.
@@ -383,6 +388,7 @@ final class UsageViewModel {
                 s.sessionExpired = false
                 statesByAccount[id] = s
                 if let name = svc.cachedOrgName { applyOrgNameToRoster(id: id, orgName: name) }
+                retryAccountInfoIfMissing(id: id, svc: svc)
                 shouldSchedule = true
             } catch let err as ClaudeAPIService.APIError {
                 guard !Task.isCancelled else { return }

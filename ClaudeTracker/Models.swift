@@ -1080,6 +1080,8 @@ struct AccountState: Sendable {
     var error: String?
     var lastUpdated: Date?
     var accountInfo: AccountInfo?
+    /// When `/api/account` was last requested; throttles the retry while `accountInfo` is nil.
+    var accountInfoAttemptedAt: Date?
     /// Tracks the parsed `resetsAt` per window key. A reset is inferred when the new date is
     /// > 1 hour later AND utilization drops below 5%.
     var previousResetsAt: [String: Date] = [:]

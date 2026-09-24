@@ -100,7 +100,7 @@ struct MenuBarView: View {
             Spacer()
             if viewModel.accounts.count >= 2 {
                 accountPicker
-            } else if let sub = viewModel.accountInfo?.subscriptionLabel {
+            } else if let sub = viewModel.activeSubscriptionLabel {
                 SubscriptionBadge(label: sub, scale: s)
             }
         }
@@ -132,7 +132,7 @@ struct MenuBarView: View {
                         .font(sf(10, .semibold))
                         .lineLimit(1)
                 }
-                if let sub = viewModel.accountInfo?.subscriptionLabel {
+                if let sub = viewModel.activeSubscriptionLabel {
                     SubscriptionBadge(label: sub, scale: s)
                 }
                 Image(systemName: "chevron.down")

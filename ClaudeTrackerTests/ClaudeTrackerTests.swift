@@ -296,6 +296,20 @@ final class ClaudeTrackerTests: XCTestCase {
         XCTAssertTrue(vm.isAuthenticated)
     }
 
+    /// The header badge must survive a failed `/api/account` fetch (e.g. launch at login before
+    /// the network is up) by falling back to the plan the roster saved from an earlier session.
+    @MainActor
+    func testActiveSubscriptionLabelFallsBackToTheRosterCopy() {
+        let vm = UsageViewModel()
+        let account = Account(label: "Work", subscriptionLabel: "Max 5×")
+        vm.accounts = [account]
+        vm.activeAccountID = account.id
+        XCTAssertEqual(vm.activeSubscriptionLabel, "Max 5×")
+
+        vm.statesByAccount[account.id, default: .init()].accountInfo = makeInfo(caps: ["claude_pro"], tier: "default_claude_pro")
+        XCTAssertEqual(vm.activeSubscriptionLabel, "Pro")
+    }
+
     // MARK: - Helpers
 
     private func makeInfo(caps: [String], tier: String) -> AccountInfo {
