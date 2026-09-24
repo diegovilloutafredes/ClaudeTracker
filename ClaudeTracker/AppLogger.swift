@@ -42,8 +42,13 @@ final class AppLogger: Sendable {
         }
         if fm.fileExists(atPath: url.path) {
             guard let fh = try? FileHandle(forWritingTo: url) else { return }
-            fh.seekToEndOfFile()
-            fh.write(data)
+            // The throwing API on purpose: the legacy seekToEndOfFile()/write(_:) raise an
+            // Objective-C exception on I/O errors (e.g. a full disk), which Swift can't catch —
+            // a logger that runs on every poll would crash the app. A failed line is dropped.
+            do {
+                try fh.seekToEnd()
+                try fh.write(contentsOf: data)
+            } catch {}
             try? fh.close()
         } else {
             // The directory is created in init, but a cleanup tool can delete it while
