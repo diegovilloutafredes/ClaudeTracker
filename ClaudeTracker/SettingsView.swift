@@ -341,8 +341,6 @@ struct SettingsView: View {
             Toggle("7-Day window resets", isOn: $viewModel.notify7Day)
                 .toggleStyle(GreenSwitchStyle())
 
-            Divider().listRowInsets(EdgeInsets())
-
             Toggle("Toast near menu bar", isOn: $viewModel.notifyToast)
                 .toggleStyle(GreenSwitchStyle())
 
@@ -353,8 +351,6 @@ struct SettingsView: View {
 
             Toggle("Sound (Hero)", isOn: $viewModel.resetSoundEnabled)
                 .toggleStyle(GreenSwitchStyle())
-
-            Divider().listRowInsets(EdgeInsets())
 
             HStack(spacing: 10) {
                 Button("Test") { viewModel.sendTestNotification() }
@@ -388,8 +384,6 @@ struct SettingsView: View {
                         .frame(width: 32, alignment: .trailing)
                 }
 
-                Divider().listRowInsets(EdgeInsets())
-
                 Toggle("Toast near menu bar", isOn: $viewModel.paceToastEnabled)
                     .toggleStyle(GreenSwitchStyle())
 
@@ -400,8 +394,6 @@ struct SettingsView: View {
 
                 Toggle("Sound (Basso)", isOn: $viewModel.paceSoundEnabled)
                     .toggleStyle(GreenSwitchStyle())
-
-                Divider().listRowInsets(EdgeInsets())
 
                 HStack(spacing: 10) {
                     Button("Test") { viewModel.sendTestPaceNotification() }
