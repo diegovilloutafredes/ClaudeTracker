@@ -444,7 +444,7 @@ final class UsageViewModel {
     /// from ~90% — approximate bands learned from this log) so the field's semantics keep
     /// accumulating evidence before any UI is built on it.
     /// Thin delegation — the signature logic is the pure, tested `abnormalSeverities`
-    /// in Models.swift.
+    /// in APIModels.swift.
     private func logSeverityTransition(old: UsageResponse?, new: UsageResponse) {
         let sig = abnormalSeverities(new.limits)
         if !sig.isEmpty, sig != abnormalSeverities(old?.limits) {
