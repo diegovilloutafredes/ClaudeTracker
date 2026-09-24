@@ -102,9 +102,13 @@ final class LoginWindowController {
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self, weak window] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                // Drop the closed window: kept, its content kept the account's web view (and so
+                // its data store) alive until the next open, and WebKit won't delete a store in
+                // use — which is exactly what the rollback below asks it to do.
+                if let window, self.window === window { self.window = nil }
                 if !self.sessionFound { self.onCancel?() }
                 self.sessionFound = false
                 self.onCancel = nil

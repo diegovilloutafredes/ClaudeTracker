@@ -1154,6 +1154,14 @@ enum AccountStore {
     }
 }
 
+/// The WebKit data stores in `existing` that no roster entry owns, in `existing` order —
+/// left behind when a removal ran while a web view still held its store (WebKit refuses to
+/// delete a store in use). A pending placeholder is in the roster, so its store is kept.
+func orphanedDataStoreIDs(existing: [UUID], roster: [Account]) -> [UUID] {
+    let owned = Set(roster.map(\.dataStoreIdentifier))
+    return existing.filter { !owned.contains($0) }
+}
+
 /// A newer version discovered via the GitHub Releases API.
 struct UpdateInfo: Sendable {
     let version: String

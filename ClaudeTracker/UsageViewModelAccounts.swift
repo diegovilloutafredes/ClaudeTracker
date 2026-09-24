@@ -36,7 +36,15 @@ extension UsageViewModel {
             statesByAccount[acct.id] = s
         }
 
-        if accounts.isEmpty, UserDefaults.standard.integer(forKey: PrefKey.accountsMigrationVersion) < 1 {
+        let migrationVersion = UserDefaults.standard.integer(forKey: PrefKey.accountsMigrationVersion)
+        // The migration's no-session branch never cleared the pre-multi-account history blob;
+        // once the migration has run, it belongs to no account.
+        if migrationVersion >= 1, UserDefaults.standard.object(forKey: PrefKey.legacyUsageHistory) != nil {
+            UserDefaults.standard.removeObject(forKey: PrefKey.legacyUsageHistory)
+            AppLogger.shared.info("removed the orphaned legacy usageHistory blob")
+        }
+
+        if accounts.isEmpty, migrationVersion < 1 {
             isMigrating = true
             Task { [weak self] in await self?.migrateLegacySessionIfPresent() }
             return
@@ -52,6 +60,27 @@ extension UsageViewModel {
             activeAccountID = nil
             AccountStore.saveActiveID(nil)
         }
+        sweepOrphanedDataStores()
+    }
+
+    /// Deletes per-account WebKit stores that no roster entry owns. A removal that raced a
+    /// live web view fails (WebKit only deletes a store nothing uses) and could leave a
+    /// removed account's cookies on disk indefinitely. Only called once the roster is
+    /// final — never mid-migration, which creates its store before registering the account.
+    private func sweepOrphanedDataStores() {
+        WKWebsiteDataStore.fetchAllDataStoreIdentifiers { [weak self] ids in
+            guard let self, !self.isMigrating else { return }
+            for id in orphanedDataStoreIDs(existing: ids, roster: self.accounts) {
+                WKWebsiteDataStore.remove(forIdentifier: id) { err in
+                    let short = id.uuidString.prefix(8)
+                    if let err {
+                        AppLogger.shared.error("orphaned data store \(short) remove failed: \(err.localizedDescription)")
+                    } else {
+                        AppLogger.shared.info("removed orphaned data store \(short)")
+                    }
+                }
+            }
+        }
     }
 
     /// Makes `account` the active one (persisting the selection), rebuilds the API service
@@ -64,10 +93,23 @@ extension UsageViewModel {
     }
 
     /// Removes an account's persisted chart history and its `WKWebsiteDataStore`.
+    ///
+    /// WebKit only deletes a store once no web view uses it, and callers can run while one is
+    /// still alive (the closing login window, a poll suspended in `callAsyncJavaScript`), so a
+    /// failed removal is retried once a few seconds later. Anything that survives both is
+    /// deleted by the launch-time orphan sweep.
     private func purgeAccountStorage(id: UUID, dataStoreID: UUID, context: String) {
         UserDefaults.standard.removeObject(forKey: AccountStore.usageHistoryKey(for: id))
         WKWebsiteDataStore.remove(forIdentifier: dataStoreID) { err in
-            if let err { AppLogger.shared.error("\(context) data store remove failed: \(err.localizedDescription)") }
+            guard err != nil else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(5))
+                WKWebsiteDataStore.remove(forIdentifier: dataStoreID) { err in
+                    guard let err else { return }
+                    AppLogger.shared.error("\(context) data store remove failed twice (left for the launch sweep): "
+                                           + err.localizedDescription)
+                }
+            }
         }
     }
 
@@ -257,7 +299,12 @@ extension UsageViewModel {
     /// per-identifier store, registers the corresponding `Account`, and migrates the legacy
     /// `usageHistory` UserDefaults key into the per-account namespace.
     private func migrateLegacySessionIfPresent() async {
-        defer { isMigrating = false }
+        defer {
+            isMigrating = false
+            // The roster is final now. A failed attempt's half-copied store is an orphan too:
+            // the retry on the next launch copies into a fresh store.
+            sweepOrphanedDataStores()
+        }
         let cookies = await WKWebsiteDataStore.default().httpCookieStore.allCookies()
         let claudeCookies = cookies.filter(\.isClaudeDomain)
         let hasSession = claudeCookies.contains { $0.name == "sessionKey" }

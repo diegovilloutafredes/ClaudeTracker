@@ -326,6 +326,20 @@ final class PureLogicTests: XCTestCase {
         XCTAssertEqual(PaceRateUnit.perSecond.format(36), "0.0100%/s")
     }
 
+    // MARK: - Orphaned data stores
+
+    /// The launch sweep deletes WebKit stores whose account is gone (a removal that raced a
+    /// live web view, a cancelled add) and must never touch one the roster owns — including
+    /// a pending placeholder's, whose login may still be in progress.
+    func testOrphanedDataStoreIDsKeepsEveryStoreTheRosterOwns() {
+        let owned = Account(label: "Work")
+        let pending = Account(label: "Claude account", pending: true)
+        let orphan = UUID()
+        let existing = [owned.dataStoreIdentifier, orphan, pending.dataStoreIdentifier]
+        XCTAssertEqual(orphanedDataStoreIDs(existing: existing, roster: [owned, pending]), [orphan])
+        XCTAssertEqual(orphanedDataStoreIDs(existing: [], roster: [owned]), [])
+    }
+
     // MARK: - FetchFailure
 
     /// A Cloudflare-challenged fetch must never read as an auth failure: two of them in a
