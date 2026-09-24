@@ -492,29 +492,19 @@ final class UsageViewModel {
         }
     }
 
-    /// Computes the adaptive polling interval from the most urgent active window.
+    /// Computes the adaptive polling interval from the most urgent tracked window, via the
+    /// pure `adaptivePollInterval(windows:projectedMinutes:now:)` in Models.swift.
     private func computeAdaptiveInterval() -> TimeInterval {
         guard let usage else { return 10 }
-        let fh = intervalForWindow(key: "five_hour", window: usage.fiveHour)
-        let sd = intervalForWindow(key: "seven_day",  window: usage.sevenDay)
-        return min(fh, sd)
-    }
-
-    /// Computes the polling interval for a single usage window. The tier logic lives in
-    /// the pure `pollInterval(utilization:resetsAt:projectedMinutes:now:)` in Models.swift.
-    private func intervalForWindow(key: String, window: UsageWindow?) -> TimeInterval {
-        guard let window else { return 10 }
-        let projMins = pace(for: key)?.projectedHours.map { $0 * 60 }
-        return pollInterval(utilization: window.utilization,
-                            resetsAt: window.resetsAtDate,
-                            projectedMinutes: projMins)
+        return adaptivePollInterval(windows: usage.trackedWindows,
+                                    projectedMinutes: { self.pace(for: $0)?.projectedHours.map { $0 * 60 } })
     }
 
     // MARK: - Computed State
 
-    /// Highest utilization across the 5-hour and 7-day windows.
+    /// Highest utilization across every tracked window, for the poll log line.
     var maxUtilization: Double {
-        usage?.allWindows.map(\.1.utilization).max() ?? 0
+        usage?.trackedWindows.map(\.window.utilization).max() ?? 0
     }
 
     /// The window the user has selected for the menu bar label.

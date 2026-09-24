@@ -333,6 +333,17 @@ func pollInterval(utilization: Double, resetsAt: Date?, projectedMinutes: Double
     }
 }
 
+/// The poll interval for a whole response: the most urgent tier among its tracked windows
+/// (10 s when there are none). Model-scoped limits count, since a weekly model limit is
+/// often the binding one; `projectedMinutes` looks up a window's pace by its key.
+func adaptivePollInterval(windows: [TrackedWindow], projectedMinutes: (String) -> Double?,
+                          now: Date = Date()) -> TimeInterval {
+    windows.map {
+        pollInterval(utilization: $0.window.utilization, resetsAt: $0.window.resetsAtDate,
+                     projectedMinutes: projectedMinutes($0.key), now: now)
+    }.min() ?? 10
+}
+
 /// Poll interval tier for a window that is actively filling, from projected minutes to full.
 func pollIntervalForProjectedMinutes(_ projMins: Double) -> TimeInterval {
     switch projMins {

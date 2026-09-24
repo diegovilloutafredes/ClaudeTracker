@@ -68,6 +68,30 @@ final class PureLogicTests: XCTestCase {
         XCTAssertEqual(pollIntervalForProjectedMinutes(1), 1)
     }
 
+    // MARK: - adaptivePollInterval
+
+    private func window(_ key: String, _ utilization: Double, resetsIn: TimeInterval, now: Date,
+                        scoped: Bool = false) -> TrackedWindow {
+        let iso = ISO8601DateFormatter().string(from: now.addingTimeInterval(resetsIn))
+        return TrackedWindow(key: key, title: key, window: UsageWindow(utilization: utilization, resetsAt: iso),
+                             isModelScoped: scoped)
+    }
+
+    func testAdaptivePollIntervalFollowsAFillingModelLimit() {
+        // A weekly model limit is often the binding one: its pace must drive the cadence
+        // even while the built-in windows are calm.
+        let now = Date()
+        let windows = [window("five_hour", 10, resetsIn: 3 * 3600, now: now),
+                       window("seven_day", 30, resetsIn: 3 * 86400, now: now),
+                       window("scoped.Fable", 90, resetsIn: 3 * 86400, now: now, scoped: true)]
+        let interval = adaptivePollInterval(windows: windows, projectedMinutes: { $0 == "scoped.Fable" ? 10 : nil }, now: now)
+        XCTAssertEqual(interval, pollIntervalForProjectedMinutes(10))
+    }
+
+    func testAdaptivePollIntervalWithoutWindowsIsTenSeconds() {
+        XCTAssertEqual(adaptivePollInterval(windows: [], projectedMinutes: { _ in nil }), 10)
+    }
+
     // MARK: - Error backoff
 
     func testErrorBackoffScalesAndCaps() {
