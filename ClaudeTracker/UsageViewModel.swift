@@ -35,7 +35,7 @@ final class UsageViewModel {
     /// the popover shows the signed-out empty state until the migration finishes.
     var isMigrating: Bool = false
 
-/// Active account's last fetched usage response. Read-only — fetch path writes to the
+    /// Active account's last fetched usage response. Read-only — fetch path writes to the
     /// per-account bucket directly so a mid-fetch account switch can't cross-contaminate state.
     var usage: UsageResponse? { activeState?.usage }
     /// Active account's last error message.
@@ -464,9 +464,9 @@ final class UsageViewModel {
         }
     }
 
-/// Schedules the next poll after an adaptive delay derived from current utilization and pace.
+    /// Schedules the next poll after an adaptive delay derived from current utilization and pace.
     ///
-    /// Interval logic (per window, takes the minimum across both windows):
+    /// Interval logic (per window, takes the minimum across every tracked window):
     ///   - Window stale (reset passed while app was idle): 2 s — catch the new window fast
     ///   - Utilization ≥ 100% and reset time known: 10–300 s based on time until reset
     ///   - Utilization < 100% with pace: 1–10 s based on projected minutes to full

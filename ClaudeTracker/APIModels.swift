@@ -75,12 +75,6 @@ struct UsageResponse: Codable, Sendable {
         return result
     }
 
-    /// Model-scoped weekly limits (e.g. "Fable") from the `limits` array, as displayable
-    /// windows. A model that already renders via its legacy sub-window (Sonnet) is skipped
-    /// so it can't show as a duplicate row. Duplicate labels (the scope object also has a
-    /// `surface` axis, so same-model entries are plausible) are collapsed to the
-    /// max-percent entry — a duplicate would collide on ForEach identity and interleave
-    /// two series into one pace-history bucket.
     /// Every window the app tracks, in display order: the built-in 5-hour and 7-day
     /// windows, the legacy Sonnet sub-window, then each model-scoped weekly limit.
     var trackedWindows: [TrackedWindow] {
@@ -98,6 +92,12 @@ struct UsageResponse: Codable, Sendable {
         return result
     }
 
+    /// Model-scoped weekly limits (e.g. "Fable") from the `limits` array, as displayable
+    /// windows. A model that already renders via its legacy sub-window (Sonnet) is skipped
+    /// so it can't show as a duplicate row. Duplicate labels (the scope object also has a
+    /// `surface` axis, so same-model entries are plausible) are collapsed to the
+    /// max-percent entry — a duplicate would collide on ForEach identity and interleave
+    /// two series into one pace-history bucket.
     var scopedModelWindows: [ScopedModelWindow] {
         var result: [ScopedModelWindow] = []
         var indexByLabel: [String: Int] = [:]
