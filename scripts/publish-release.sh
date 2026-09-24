@@ -21,16 +21,25 @@ fi
 
 version="${1:?usage: publish-release.sh <version> | --check-key}"
 tag="v$version"
+# Anything that fails from here on leaves a private draft; this resumes it.
+trap 'echo "Publishing $tag failed. The draft stays private; rerun: make publish VERSION=$version" >&2' ERR
 
 echo "==> Waiting for the Release workflow for $tag..."
 run=""
 for _ in $(seq 1 60); do
+  # Newest run for the tag: tags are never reused here (a re-tag would need the old run skipped).
   run=$(gh run list --workflow release.yml --branch "$tag" --limit 1 --json databaseId -q '.[0].databaseId')
   [ -n "$run" ] && break
   sleep 5
 done
 [ -n "$run" ] || { echo "No Release workflow run found for $tag." >&2; exit 1; }
-gh run watch "$run" --exit-status --interval 20 > /dev/null
+if ! gh run watch "$run" --exit-status --interval 20 > /dev/null; then
+  trap - ERR
+  # Rerunning the publish can't help: there is no zip to sign.
+  echo "The Release workflow failed: $(gh run view "$run" --json url -q .url)" >&2
+  echo "Fix the cause, delete the tag (git push origin :refs/tags/$tag; git tag -d $tag), and tag again." >&2
+  exit 1
+fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

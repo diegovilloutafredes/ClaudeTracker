@@ -925,6 +925,21 @@ final class AtomicInstallTests: XCTestCase {
         XCTAssertTrue(verifyUpdateSignature(text, signature: signature, publicKey: updateSigningPublicKey))
     }
 
+    /// After a release's signature fails, Install would fail the same way: offer only the
+    /// release page (Download) for that version, keep other versions installable.
+    func testARejectedSignatureLeavesOnlyTheReleasePage() throws {
+        let page = try XCTUnwrap(URL(string: "https://github.com/x/y/releases/tag/v9.0.0"))
+        let update = UpdateInfo(version: "9.0.0", releaseURL: page,
+                                downloadURL: URL(string: "https://example.com/ClaudeTracker.zip"),
+                                signatureURL: URL(string: "https://example.com/ClaudeTracker.zip.sig"))
+        let rejected = installableUpdate(update, signatureRejectedVersion: "9.0.0")
+        XCTAssertNil(rejected.downloadURL)
+        XCTAssertNil(rejected.signatureURL)
+        XCTAssertEqual(rejected.releaseURL, page)
+        XCTAssertNotNil(installableUpdate(update, signatureRejectedVersion: "8.0.0").downloadURL)
+        XCTAssertNotNil(installableUpdate(update, signatureRejectedVersion: nil).downloadURL)
+    }
+
     // MARK: - Auto-install retry cap
 
     func testInstallFailureCountAccumulatesForTheSameVersion() {

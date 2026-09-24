@@ -54,6 +54,14 @@ func parseGitHubReleases(_ data: Data, currentVersion: String) -> (update: Updat
 /// users then install by hand once.
 let updateSigningPublicKey = Data(base64Encoded: "rnHlUrHGhtrUIQAgZxvIHG5vO1kvTZNxRDR+KTFmcIg=") ?? Data()
 
+/// `update` without its in-app install when it is the release whose signature was rejected
+/// this session: Install would only fail the same way, so the UI falls back to the release
+/// page's Download link.
+func installableUpdate(_ update: UpdateInfo, signatureRejectedVersion: String?) -> UpdateInfo {
+    guard update.version == signatureRejectedVersion else { return update }
+    return UpdateInfo(version: update.version, releaseURL: update.releaseURL, downloadURL: nil)
+}
+
 /// True when `signature` is a valid Ed25519 signature of `data` by the raw 32-byte
 /// `publicKey`. Malformed keys or signatures are simply invalid.
 func verifyUpdateSignature(_ data: Data, signature: Data, publicKey: Data) -> Bool {
@@ -175,6 +183,8 @@ final class UpdateService {
     @ObservationIgnored private var lastNotifiedUpdateVersion: String = ""
     @ObservationIgnored private var failedInstallVersion: String = ""
     @ObservationIgnored private var failedInstallCount = 0
+    /// The release whose signature failed verification this session (`installableUpdate`).
+    @ObservationIgnored private var signatureRejectedVersion: String?
     /// Adaptive check interval (seconds), computed from release cadence. Clamped 4h–24h.
     private var nextCheckInterval: TimeInterval = 12 * 3600
 
@@ -231,7 +241,7 @@ final class UpdateService {
             let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
             let (update, dates) = parseGitHubReleases(data, currentVersion: current)
 
-            if let update {
+            if let update = update.map({ installableUpdate($0, signatureRejectedVersion: signatureRejectedVersion) }) {
                 availableUpdate = update
 
                 // Only notify once per discovered version (persisted across restarts)
@@ -414,6 +424,10 @@ final class UpdateService {
                 NSApp.terminate(nil)
             } catch {
                 updateDownloadState = .failed(error.localizedDescription)
+                if case UpdateError.signatureInvalid = error {
+                    signatureRejectedVersion = update.version
+                    availableUpdate = installableUpdate(update, signatureRejectedVersion: update.version)
+                }
                 recordInstallFailure(version: update.version, error: error)
             }
         }
