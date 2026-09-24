@@ -130,6 +130,42 @@ final class PureLogicTests: XCTestCase {
         XCTAssertFalse(shouldResetPaceHistory(last: 50, current: 40))
     }
 
+    // MARK: - Chart downsampling
+
+    /// 30 days of 5-minute samples: a sawtooth that climbs to a peak and drops at each reset.
+    private func monthOfSamples(end: Date) -> [(Date, Double)] {
+        (0..<8640).map { i -> (Date, Double) in
+            let time = end.addingTimeInterval(-Double(8639 - i) * 300)
+            let value = Double(i % 2016) / 2016 * 97
+            return (time, i == 5000 ? value + 3 : value)
+        }
+    }
+
+    func testDownsampleCapsTheMarksAChartDraws() {
+        let end = Date()
+        let pairs = monthOfSamples(end: end)
+        let plotted = downsample(pairs, buckets: 150, over: pairs[0].0...end)
+        XCTAssertLessThanOrEqual(plotted.count, 2 * 150 + 2)
+        XCTAssertEqual(plotted.map { $0.0 }, plotted.map { $0.0 }.sorted())
+    }
+
+    func testDownsampleKeepsPeaksDropsAndEndpoints() {
+        let end = Date()
+        let pairs = monthOfSamples(end: end)
+        let plotted = downsample(pairs, buckets: 150, over: pairs[0].0...end)
+        XCTAssertEqual(plotted.map { $0.1 }.max(), pairs.map { $0.1 }.max())
+        XCTAssertEqual(plotted.map { $0.1 }.min(), pairs.map { $0.1 }.min())
+        XCTAssertEqual(plotted.first?.0, pairs.first?.0)
+        XCTAssertEqual(plotted.last?.0, pairs.last?.0)
+    }
+
+    func testDownsampleLeavesShortSeriesUntouched() {
+        let end = Date()
+        let pairs = (0..<60).map { (end.addingTimeInterval(-Double(59 - $0) * 300), Double($0)) }
+        let plotted = downsample(pairs, buckets: 150, over: pairs[0].0...end)
+        XCTAssertEqual(plotted.map { $0.0 }, pairs.map { $0.0 })
+    }
+
     // MARK: - Chart history append/prune/cap
 
     private func point(_ date: Date, _ v: Double = 50) -> UsageDataPoint {

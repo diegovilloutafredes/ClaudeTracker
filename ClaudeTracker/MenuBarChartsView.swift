@@ -33,6 +33,42 @@ func nearestSample(in pairs: [(Date, Double)], to t: Date, span: TimeInterval) -
     return nearest
 }
 
+/// Time buckets per chart for `downsample`: about one per horizontal point of a chart.
+let chartBuckets = 150
+
+/// At most two samples per time bucket over `domain` (each bucket's lowest and highest, in
+/// time order) plus the first and last sample. A 30-day chart then draws ~300 marks instead
+/// of 8640 on every poll and hover move, while peaks and reset drops still show; samples
+/// that neither raise nor lower their bucket are invisible at that width anyway. Expects
+/// `pairs` in time order, as the history is stored.
+func downsample(_ pairs: [(Date, Double)], buckets: Int, over domain: ClosedRange<Date>) -> [(Date, Double)] {
+    let width = domain.upperBound.timeIntervalSince(domain.lowerBound) / Double(buckets)
+    guard buckets > 0, width > 0, pairs.count > 2 * buckets + 2 else { return pairs }
+    func bucket(_ i: Int) -> Int { min(buckets - 1, Int(pairs[i].0.timeIntervalSince(domain.lowerBound) / width)) }
+    var keep = [0]
+    var i = 0
+    while i < pairs.count {
+        let b = bucket(i)
+        var lo = i, hi = i, j = i + 1
+        while j < pairs.count, bucket(j) == b {
+            if pairs[j].1 < pairs[lo].1 { lo = j }
+            if pairs[j].1 > pairs[hi].1 { hi = j }
+            j += 1
+        }
+        keep.append(min(lo, hi))
+        if lo != hi { keep.append(max(lo, hi)) }
+        i = j
+    }
+    keep.append(pairs.count - 1)
+    var result: [(Date, Double)] = []
+    var previous = -1
+    for k in keep where k != previous {
+        result.append(pairs[k])
+        previous = k
+    }
+    return result
+}
+
 /// Hour:minute axis/hover labels for spans under ~a day; abbreviated month + day beyond.
 /// The hour cycle is pinned to the Time format setting so chart times match the reset line.
 private func chartAxisFormat(forSpan span: TimeInterval, use24Hour: Bool) -> Date.FormatStyle {
@@ -321,7 +357,7 @@ struct MenuBarChartsView: View {
             LineMark(x: .value("Time", resetDate), y: .value("Usage", 100.0), series: .value("Series", "expected"))
                 .foregroundStyle(Color.secondary.opacity(0.35))
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-            ForEach(pairs, id: \.0) { pair in
+            ForEach(downsample(pairs, buckets: chartBuckets, over: windowStart...xMax), id: \.0) { pair in
                 AreaMark(x: .value("Time", pair.0), y: .value("Usage", pair.1))
                     .foregroundStyle(Color.secondary.opacity(0.12))
                     .interpolationMethod(.monotone)
@@ -439,19 +475,15 @@ private struct MiniChartView: View {
     }
 
     var body: some View {
-        let values: [Double] = filtered.compactMap(value)
+        let pairs: [(Date, Double)] = filtered.compactMap { dp in value(dp).map { (dp.timestamp, $0) } }
+        // Stats and hover read every sample; only the drawn marks are downsampled.
+        let values = pairs.map { $0.1 }
         let peak = values.max() ?? 0
         let avg = values.isEmpty ? 0.0 : values.reduce(0, +) / Double(values.count)
         let color: Color = accent ?? urgencyColor(min((values.last ?? 0) / 100.0, 1.0))
         let span = xDomain.upperBound.timeIntervalSince(xDomain.lowerBound)
         let xFormat = chartAxisFormat(forSpan: span, use24Hour: use24Hour)
-        let hovered: (Date, Double)? = selectedTime.flatMap { t in
-            let pairs = filtered.compactMap { dp -> (Date, Double)? in
-                guard let v = value(dp) else { return nil }
-                return (dp.timestamp, v)
-            }
-            return nearestSample(in: pairs, to: t, span: span)
-        }
+        let hovered: (Date, Double)? = selectedTime.flatMap { nearestSample(in: pairs, to: $0, span: span) }
         let displayValue = hovered?.1 ?? (values.last ?? 0)
         let nowLabel: String = {
             if let (t, v) = hovered {
@@ -477,22 +509,20 @@ private struct MiniChartView: View {
                 CollectingPlaceholder(height: 50, scale: scale)
             } else {
                 Chart {
-                    ForEach(filtered) { dp in
-                        if let v = value(dp) {
-                            AreaMark(
-                                x: .value("Time", dp.timestamp),
-                                y: .value(label, v)
-                            )
-                            .foregroundStyle(color.opacity(0.15))
-                            .interpolationMethod(.monotone)
-                            LineMark(
-                                x: .value("Time", dp.timestamp),
-                                y: .value(label, v)
-                            )
-                            .foregroundStyle(color)
-                            .lineStyle(StrokeStyle(lineWidth: 1.5))
-                            .interpolationMethod(.monotone)
-                        }
+                    ForEach(downsample(pairs, buckets: chartBuckets, over: xDomain), id: \.0) { pair in
+                        AreaMark(
+                            x: .value("Time", pair.0),
+                            y: .value(label, pair.1)
+                        )
+                        .foregroundStyle(color.opacity(0.15))
+                        .interpolationMethod(.monotone)
+                        LineMark(
+                            x: .value("Time", pair.0),
+                            y: .value(label, pair.1)
+                        )
+                        .foregroundStyle(color)
+                        .lineStyle(StrokeStyle(lineWidth: 1.5))
+                        .interpolationMethod(.monotone)
                     }
                     // The crosshair marks the MATCHED sample's own timestamp, not the
                     // cursor time — asserting the reading belongs where it actually is.
