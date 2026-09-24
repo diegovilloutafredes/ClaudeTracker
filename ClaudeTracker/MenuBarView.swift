@@ -177,6 +177,7 @@ struct MenuBarView: View {
             errorView(error)
         } else {
             ProgressView("Loading…")
+                .font(sf(12))
                 .frame(maxWidth: .infinity, alignment: .center)
         }
     }
@@ -195,6 +196,7 @@ struct MenuBarView: View {
                 viewModel.openLoginForNewAccount()
             } label: {
                 Label("Add a Claude account", systemImage: "globe")
+                    .font(sf(13))
             }
             .controlSize(.large)
             .buttonStyle(.borderedProminent)
@@ -225,6 +227,7 @@ struct MenuBarView: View {
                 viewModel.signInAgain()
             } label: {
                 Label("Sign in again", systemImage: "globe")
+                    .font(sf(13))
             }
             .controlSize(.large)
             .buttonStyle(.borderedProminent)
@@ -268,6 +271,7 @@ struct MenuBarView: View {
             // on their own, and the button would suggest otherwise.
             if viewModel.sessionNeedsSignIn {
                 Button("Sign in again") { viewModel.signInAgain() }
+                    .font(sf(11))
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
             }
