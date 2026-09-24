@@ -51,6 +51,13 @@ final class UsageViewModel {
         guard !isMigrating, let id = activeAccountID, accounts.contains(where: { $0.id == id }) else { return false }
         return statesByAccount[id]?.sessionExpired != true
     }
+    /// True when the active account's session needs a fresh sign-in: from the first 401
+    /// (one silent retry still pending) until a new session is captured. Drives the
+    /// "Sign in again" buttons, which reopen login on this same account (`signInAgain()`).
+    var sessionNeedsSignIn: Bool {
+        guard let state = activeState else { return false }
+        return state.sessionExpired || state.consecutive401s > 0
+    }
 
     /// Convenience: per-account bucket for the active account.
     private var activeState: AccountState? {
@@ -343,7 +350,10 @@ final class UsageViewModel {
     /// switch deposits the response into the right bucket (and the next active poll triggers
     /// independently for the new account).
     func fetchUsage() {
-        guard isAuthenticated, let id = activeAccountID, let svc = apiService else { return }
+        // While the login window shows this service's web view, a fetch would navigate it
+        // off the sign-in page mid-flow. The chain restarts from handleSessionFound (or the
+        // re-sign-in's cancel path) once the window is done.
+        guard isAuthenticated, let id = activeAccountID, let svc = apiService, !svc.isLoginInProgress else { return }
         if isDataStale { AppLogger.shared.info("fetchUsage: refreshing stale data (resetsAt passed since last fetch)") }
         fetchTask?.cancel()
         fetchTask = Task { [weak self] in

@@ -162,7 +162,11 @@ struct MenuBarView: View {
     @ViewBuilder
     private var content: some View {
         if !viewModel.isAuthenticated {
-            emptyState
+            if viewModel.sessionNeedsSignIn {
+                expiredState
+            } else {
+                emptyState
+            }
         } else if let usage = viewModel.usage {
             usageWindows(usage)
         } else if let error = viewModel.error {
@@ -201,6 +205,31 @@ struct MenuBarView: View {
         .padding(.vertical, 8 * s)
     }
 
+    /// The active account's session was rejected twice. Signing in again reuses this
+    /// account — "Add a Claude account" here would create a duplicate and strand its history.
+    private var expiredState: some View {
+        VStack(spacing: 11 * s) {
+            Image(systemName: "person.crop.circle.badge.exclamationmark")
+                .font(sf(23))
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            Text("Session expired")
+                .font(sf(12))
+                .foregroundStyle(.secondary)
+
+            Button {
+                viewModel.signInAgain()
+            } label: {
+                Label("Sign in again", systemImage: "globe")
+            }
+            .controlSize(.large)
+            .buttonStyle(.borderedProminent)
+            .tint(.accentColor)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8 * s)
+    }
+
     @ViewBuilder
     private func usageWindows(_ usage: UsageResponse) -> some View {
         if viewModel.isDataStale {
@@ -231,16 +260,13 @@ struct MenuBarView: View {
                 .foregroundStyle(.red)
                 .font(sf(12))
 
-            Button("Sign in again") {
-                if let svc = viewModel.apiService {
-                    LoginWindowController.shared.open(
-                        apiService: svc,
-                        onSessionFound: viewModel.handleSessionFound
-                    )
-                }
+            // Only an auth failure is fixed by signing in; network and format errors retry
+            // on their own, and the button would suggest otherwise.
+            if viewModel.sessionNeedsSignIn {
+                Button("Sign in again") { viewModel.signInAgain() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 8 * s)

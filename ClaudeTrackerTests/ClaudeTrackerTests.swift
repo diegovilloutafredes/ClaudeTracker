@@ -273,6 +273,29 @@ final class ClaudeTrackerTests: XCTestCase {
         XCTAssertFalse(vm.isAuthenticated)
     }
 
+    /// A rejected session must be signed back in on the same account: the expired state used
+    /// to offer only "Add a Claude account" (a duplicate row that stranded the history), and a
+    /// stale 401 count survived re-sign-in, so the next single 401 expired the new session.
+    @MainActor
+    func testSessionNeedsSignInFromTheFirst401UntilASessionIsFound() {
+        let vm = UsageViewModel()
+        let account = Account(label: "Work")
+        vm.accounts = [account]
+        vm.activeAccountID = account.id
+        XCTAssertFalse(vm.sessionNeedsSignIn)
+
+        vm.statesByAccount[account.id, default: .init()].consecutive401s = 1
+        XCTAssertTrue(vm.sessionNeedsSignIn)
+        vm.statesByAccount[account.id]?.consecutive401s = 2
+        vm.statesByAccount[account.id]?.sessionExpired = true
+        XCTAssertTrue(vm.sessionNeedsSignIn)
+
+        vm.handleSessionFound("new-session")
+        XCTAssertFalse(vm.sessionNeedsSignIn)
+        XCTAssertEqual(vm.statesByAccount[account.id]?.consecutive401s, 0)
+        XCTAssertTrue(vm.isAuthenticated)
+    }
+
     // MARK: - Helpers
 
     private func makeInfo(caps: [String], tier: String) -> AccountInfo {

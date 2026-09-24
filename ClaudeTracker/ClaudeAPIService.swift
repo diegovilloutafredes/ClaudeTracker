@@ -63,7 +63,11 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
         webView.load(URLRequest(url: URL(string: "https://claude.ai/login")!))
     }
 
-    /// Polls the shared cookie store every second until a `sessionKey` cookie appears.
+    /// True while the login window's cookie poll runs. The window shows this service's web
+    /// view, so usage fetches must wait: `ensureReady` would navigate it off the sign-in page.
+    var isLoginInProgress: Bool { cookieTask != nil }
+
+    /// Polls the shared cookie store every second until a new `sessionKey` cookie appears.
     ///
     /// Cookie inspection requires an asynchronous round-trip into the cookie store; a
     /// poll loop is more reliable here than a navigation-delegate approach because
@@ -71,29 +75,39 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// session cookie. A MainActor task loop (rather than a `Timer`) keeps the whole
     /// poll on the main actor — no nonisolated timer closure touching actor state.
     ///
+    /// Only a `sessionKey` that differs from the one present when polling starts counts:
+    /// signing an expired account back in reuses its own store, which may still hold the
+    /// rejected cookie — accepting that one would report success before the user signed in.
+    ///
     /// - Parameter onFound: Called on the main thread with the session key value.
     func startCookiePolling(onFound: @escaping (String) -> Void) {
         cookieTask?.cancel()
         cookieTask = Task { [weak self] in
+            let baseline = await self?.sessionKeyValue()
             while !Task.isCancelled {
                 guard let self else { return }
-                let cookies = await self.webView.configuration.websiteDataStore.httpCookieStore.allCookies()
-                let claudeCookies = cookies.filter(\.isClaudeDomain)
-                #if DEBUG
-                if !claudeCookies.isEmpty {
-                    let names = claudeCookies.map(\.name).joined(separator: ", ")
-                    print("[ClaudeTracker] Cookies visible during login poll: \(names)")
-                }
-                #endif
-                if let session = claudeCookies.first(where: { $0.name == "sessionKey" }) {
+                if let session = await self.sessionKeyValue(), session != baseline {
                     guard !Task.isCancelled else { return }
                     self.cookieTask = nil
-                    onFound(session.value)
+                    onFound(session)
                     return
                 }
                 try? await Task.sleep(for: .seconds(1))
             }
         }
+    }
+
+    /// The claude.ai `sessionKey` cookie currently in this service's data store, if any.
+    private func sessionKeyValue() async -> String? {
+        let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
+        let claudeCookies = cookies.filter(\.isClaudeDomain)
+        #if DEBUG
+        if !claudeCookies.isEmpty {
+            let names = claudeCookies.map(\.name).joined(separator: ", ")
+            print("[ClaudeTracker] Cookies visible during login poll: \(names)")
+        }
+        #endif
+        return claudeCookies.first(where: { $0.name == "sessionKey" })?.value
     }
 
     /// Stops an in-progress cookie poll without invoking the callback.

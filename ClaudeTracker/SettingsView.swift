@@ -72,7 +72,8 @@ struct SettingsView: View {
                     // SwiftUI's tracking to flow through an extracted method —
                     // otherwise the open Settings window doesn't redraw on switch
                     // until you close + reopen it.
-                    accountRow(account, isActive: account.id == viewModel.activeAccountID)
+                    let isActive = account.id == viewModel.activeAccountID
+                    accountRow(account, isActive: isActive, needsSignIn: isActive && viewModel.sessionNeedsSignIn)
                 }
             }
 
@@ -143,7 +144,7 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func accountRow(_ account: Account, isActive: Bool) -> some View {
+    private func accountRow(_ account: Account, isActive: Bool, needsSignIn: Bool) -> some View {
         HStack(alignment: .center, spacing: 10) {
             Circle()
                 .fill(isActive ? Color.green : Color.secondary.opacity(0.4))
@@ -173,6 +174,11 @@ struct SettingsView: View {
 
             Spacer()
 
+            if needsSignIn {
+                Button("Sign in again") { viewModel.signInAgain() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
             if !isActive {
                 Button("Switch") { viewModel.switchAccount(to: account.id) }
                     .buttonStyle(.bordered)

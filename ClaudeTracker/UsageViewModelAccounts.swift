@@ -95,6 +95,9 @@ extension UsageViewModel {
         guard let id = activeAccountID else { return }
         statesByAccount[id, default: .init()].error = nil
         statesByAccount[id, default: .init()].sessionExpired = false
+        // A new session starts the 401 count over; a leftover count would expire it on its
+        // first transient 401 instead of allowing the usual silent retry.
+        statesByAccount[id, default: .init()].consecutive401s = 0
         // The account is real now — clear the pending flag so a later launch doesn't
         // reclaim it as an abandoned placeholder. (Array reassign: see renameAccount.)
         if let idx = accounts.firstIndex(where: { $0.id == id }), accounts[idx].pending == true {
@@ -104,6 +107,22 @@ extension UsageViewModel {
             AccountStore.saveAccounts(accounts)
         }
         startSession()
+    }
+
+    /// Reopens the login window on the active account's own service, so a rejected session
+    /// signs back into the same account (same roster row, same chart history). Cancelling
+    /// resumes polling — `fetchUsage` paused while the window owned the web view — unless
+    /// another flow (e.g. "Add account" reusing the window) changed the active account.
+    func signInAgain() {
+        guard let svc = apiService, let id = activeAccountID else { return }
+        LoginWindowController.shared.open(
+            apiService: svc,
+            onSessionFound: handleSessionFound,
+            onCancel: { [weak self] in
+                guard let self, self.activeAccountID == id else { return }
+                self.startPolling()
+            }
+        )
     }
 
     /// Loads account info for the active account and starts polling.

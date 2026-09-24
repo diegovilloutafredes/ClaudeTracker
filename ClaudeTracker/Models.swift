@@ -1100,8 +1100,9 @@ struct AccountState: Sendable {
     /// transient network/decode error right before the first 401 can't skip the
     /// documented one-poll silent retry and force a spurious re-login.
     var consecutive401s: Int = 0
-    /// True after a 401 retry confirms the session is no longer valid; drives the empty-state
-    /// "sign in again" UX without forcing the user to remove and re-add the account.
+    /// True after a 401 retry confirms the session is no longer valid; drives the popover's
+    /// "Session expired" state, whose "Sign in again" reopens login on this same account
+    /// (`signInAgain()`) so the user never has to remove and re-add it.
     var sessionExpired: Bool = false
 }
 
