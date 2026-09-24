@@ -325,7 +325,7 @@ struct MenuBarView: View {
                     if let win = NSApp.windows.first(where: { $0.identifier == settingsWindowIdentifier }) {
                         NSApp.setActivationPolicy(.regular)
                         win.makeKeyAndOrderFront(nil)
-                        NSApp.activate(ignoringOtherApps: true)
+                        NSApp.activate()
                     }
                 }
             } label: {

@@ -533,7 +533,7 @@ private struct SettingsWindowPositioner: NSViewRepresentable {
             // effect — unavoidable; macOS has no "Cmd+Tab only" activation policy.
             NSApp.setActivationPolicy(.regular)
             window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
 
             if coordinator.closeObserver == nil {
                 coordinator.closeObserver = NotificationCenter.default.addObserver(
