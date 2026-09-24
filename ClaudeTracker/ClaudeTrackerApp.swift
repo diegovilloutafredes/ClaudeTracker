@@ -12,7 +12,8 @@ struct ClaudeTrackerApp: App {
     /// True when this process was launched as the host of the unit tests. The test host is
     /// this app itself (same bundle id, same preferences), so live startup must not run
     /// there: no polling with the user's sessions, no migration, no login-item changes.
-    static var isRunningUnitTests: Bool {
+    /// `nonisolated`: it only reads the process environment, which needs no actor.
+    nonisolated static var isRunningUnitTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
