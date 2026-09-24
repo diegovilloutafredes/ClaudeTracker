@@ -403,6 +403,7 @@ struct MenuBarChartsView: View {
         .frame(height: 60 * scale)
         .chartHoverSelection(selectedTime)
         .accessibilityLabel(Text("Forecast chart"))
+        .accessibilityValue(Text(String(format: String(localized: "now %@"), "\(Int(lastVal))%")))
     }
 }
 
@@ -556,6 +557,9 @@ private struct MiniChartView: View {
                 .frame(height: 60 * scale)
                 .chartHoverSelection($selectedTime)
                 .accessibilityLabel(Text(LocalizedStringKey(label)))
+                // The stats row abbreviates ("pk", "avg"); VoiceOver gets the words.
+                .accessibilityValue(Text(String(format: String(localized: "now %@, peak %@, average %@"),
+                                                format(values.last ?? 0), format(peak), format(avg.rounded()))))
             }
         }
     }

@@ -664,6 +664,16 @@
         }
       }
     },
+    "now %@, peak %@, average %@": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ahora %@, máximo %@, promedio %@"
+          }
+        }
+      }
+    },
     "On pace to fill %@ early": {
       "comment": "Pace outlook: critical, will fill before reset, with time delta",
       "localizations": {
