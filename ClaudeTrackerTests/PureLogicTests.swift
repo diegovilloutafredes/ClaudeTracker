@@ -297,6 +297,83 @@ final class PureLogicTests: XCTestCase {
         XCTAssertFalse(isWindowReset(previous: prev, next: prev.addingTimeInterval(-5 * 3600), utilization: 2))
     }
 
+    // MARK: - detectResets
+
+    private func tracked(_ key: String, _ utilization: Double, _ resetsAt: Date?) -> TrackedWindow {
+        let iso = resetsAt.map { ISO8601DateFormatter().string(from: $0) }
+        return TrackedWindow(key: key, title: key, window: UsageWindow(utilization: utilization, resetsAt: iso),
+                             isModelScoped: false)
+    }
+
+    func testDetectResetsFiresWhenResetsAtGoesNullAfterStoredResetPassed() {
+        let now = Date()
+        let stored = ["five_hour": now.addingTimeInterval(-30)]
+        let result = detectResets(stored: stored, windows: [tracked("five_hour", 0, nil)], now: now)
+        XCTAssertEqual(result.reset, ["five_hour"])
+        // Dropped, so the next window's first date reads as a baseline, not a second reset.
+        XCTAssertNil(result.stored["five_hour"])
+    }
+
+    func testDetectResetsWaitsWhileNullResetsAtPrecedesStoredReset() {
+        let now = Date()
+        let reset = now.addingTimeInterval(600)
+        let result = detectResets(stored: ["five_hour": reset], windows: [tracked("five_hour", 0, nil)], now: now)
+        XCTAssertEqual(result.reset, [])
+        XCTAssertEqual(result.stored["five_hour"], reset)
+    }
+
+    func testDetectResetsIgnoresNullResetsAtWhileUtilizationIsHigh() {
+        let now = Date()
+        let reset = now.addingTimeInterval(-30)
+        let result = detectResets(stored: ["five_hour": reset], windows: [tracked("five_hour", 40, nil)], now: now)
+        XCTAssertEqual(result.reset, [])
+        XCTAssertEqual(result.stored["five_hour"], reset)
+    }
+
+    func testDetectResetsBaselinesTheNextWindowAfterANullReset() {
+        let now = Date()
+        let first = detectResets(stored: ["five_hour": now.addingTimeInterval(-30)],
+                                 windows: [tracked("five_hour", 0, nil)], now: now)
+        let nextReset = now.addingTimeInterval(5 * 3600)
+        let second = detectResets(stored: first.stored, windows: [tracked("five_hour", 1, nextReset)], now: now)
+        XCTAssertEqual(second.reset, [])
+        XCTAssertEqual(second.stored["five_hour"]?.timeIntervalSince1970 ?? 0, nextReset.timeIntervalSince1970, accuracy: 1)
+    }
+
+    func testDetectResetsFiresWhenAWindowVanishesAfterItsReset() {
+        // Team orgs drop an idle `five_hour` from the response altogether.
+        let now = Date()
+        let result = detectResets(stored: ["five_hour": now.addingTimeInterval(-30)], windows: [], now: now)
+        XCTAssertEqual(result.reset, ["five_hour"])
+        XCTAssertNil(result.stored["five_hour"])
+    }
+
+    func testDetectResetsKeepsAVanishedWindowUntilItsResetPasses() {
+        let now = Date()
+        let reset = now.addingTimeInterval(600)
+        let result = detectResets(stored: ["five_hour": reset], windows: [], now: now)
+        XCTAssertEqual(result.reset, [])
+        XCTAssertEqual(result.stored["five_hour"], reset)
+    }
+
+    func testDetectResetsKeepsTheForwardJumpRule() {
+        let now = Date()
+        let old = now.addingTimeInterval(-30)
+        let result = detectResets(stored: ["seven_day": old],
+                                  windows: [tracked("seven_day", 1, now.addingTimeInterval(7 * 86400))], now: now)
+        XCTAssertEqual(result.reset, ["seven_day"])
+        XCTAssertNotNil(result.stored["seven_day"])
+    }
+
+    func testDetectResetsBaselinesWindowsWithoutAStoredReset() {
+        let now = Date()
+        let result = detectResets(stored: [:], windows: [tracked("five_hour", 0, now.addingTimeInterval(3600)),
+                                                         tracked("seven_day", 0, nil)], now: now)
+        XCTAssertEqual(result.reset, [])
+        XCTAssertNotNil(result.stored["five_hour"])
+        XCTAssertNil(result.stored["seven_day"])
+    }
+
     // MARK: - PaceRateUnit formatting
 
     func testPerHourFormatUsesOneDecimalBelowTen() {

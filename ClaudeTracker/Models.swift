@@ -110,6 +110,37 @@ func isWindowReset(previous: Date, next: Date, utilization: Double) -> Bool {
     next.timeIntervalSince(previous) > 3600 && utilization < 5
 }
 
+/// One poll's reset bookkeeping: the keys of the windows that reset since `stored` (the last
+/// known reset time per window key), in `windows` order, and the reset times to keep.
+///
+/// A window whose `resets_at` comes back null, or that is missing from the response (Team
+/// orgs drop an idle `five_hour`), has reset once its stored time has passed at under 5 %
+/// — the forward jump `isWindowReset` looks for only arrives once usage resumes, possibly
+/// hours later. Its entry is then dropped, so that later date reads as a baseline instead
+/// of a second reset.
+func detectResets(stored: [String: Date], windows: [TrackedWindow], now: Date) -> (reset: [String], stored: [String: Date]) {
+    var reset: [String] = []
+    var next = stored
+    for tracked in windows {
+        let utilization = tracked.window.utilization
+        if let date = tracked.window.resetsAtDate {
+            if let previous = stored[tracked.key], isWindowReset(previous: previous, next: date, utilization: utilization) {
+                reset.append(tracked.key)
+            }
+            next[tracked.key] = date
+        } else if let previous = stored[tracked.key], previous <= now, utilization < 5 {
+            reset.append(tracked.key)
+            next[tracked.key] = nil
+        }
+    }
+    let present = Set(windows.map(\.key))
+    for (key, previous) in stored.sorted(by: { $0.key < $1.key }) where !present.contains(key) && previous <= now {
+        reset.append(key)
+        next[key] = nil
+    }
+    return (reset, next)
+}
+
 /// True when stored usage belongs to a window cycle that has since reset: the reset time has
 /// passed AND the last fetch predates it, so the displayed utilization is definitively stale.
 func windowIsStale(resetsAt: Date?, lastUpdated: Date?, now: Date) -> Bool {
@@ -1101,8 +1132,7 @@ struct AccountState: Sendable {
     var accountInfo: AccountInfo?
     /// When `/api/account` was last requested; throttles the retry while `accountInfo` is nil.
     var accountInfoAttemptedAt: Date?
-    /// Tracks the parsed `resetsAt` per window key. A reset is inferred when the new date is
-    /// > 1 hour later AND utilization drops below 5%.
+    /// Tracks the parsed `resetsAt` per window key; `detectResets` reads and rewrites it.
     var previousResetsAt: [String: Date] = [:]
     /// Rolling 5-minute utilization history per window key, used by `computePace`.
     var utilizationHistory: [String: [(Date, Double)]] = [:]

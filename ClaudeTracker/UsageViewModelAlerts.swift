@@ -9,50 +9,28 @@ extension UsageViewModel {
 
     /// Compares previous `resetsAt` timestamps to the new response to detect window resets.
     ///
-    /// A window is considered reset when both of the following hold (see `isWindowReset`):
-    /// - The `resetsAt` timestamp jumped forward by more than an hour (the server issued a
-    ///   new window period — plain inequality would fire on rolling-expiry timestamp noise), and
-    /// - Utilization has dropped below 5 % (guards against a timestamp refresh without an actual reset).
+    /// A window is considered reset (see `detectResets`) when its `resetsAt` jumped forward by
+    /// more than an hour at under 5 % utilization, or — when `resets_at` came back null or the
+    /// window left the response — once its stored reset time has passed at under 5 %.
     ///
     /// On the first fetch (`old == nil`) timestamps are recorded as a baseline without firing a notification.
     func checkForResets(accountID: UUID, old: UsageResponse?, new: UsageResponse) {
-        guard old != nil else {
-            recordResetsAt(accountID: accountID, response: new)
-            return
-        }
+        // Bookkeeping runs even when nothing will be announced: a passed reset left in the
+        // store would otherwise fire a stale toast once the account is active again.
+        let (resetKeys, stored) = detectResets(stored: statesByAccount[accountID]?.previousResetsAt ?? [:],
+                                               windows: new.trackedWindows, now: Date())
+        statesByAccount[accountID, default: .init()].previousResetsAt = stored
 
         // Only fire reset notifications for the *active* account; idle accounts shouldn't
         // surface toasts/sounds for resets the user can't act on right now.
-        let isActive = (accountID == activeAccountID)
+        guard old != nil, accountID == activeAccountID, resetSoundEnabled || notifyToast else { return }
 
-        guard isActive, resetSoundEnabled || notifyToast else {
-            recordResetsAt(accountID: accountID, response: new)
-            return
-        }
-
-        let prev = statesByAccount[accountID]?.previousResetsAt ?? [:]
-        var resets: [String] = []
-
-        for tracked in new.trackedWindows where isWatched(tracked) {
-            if let oldDate = prev[tracked.key],
-               let newDate = tracked.window.resetsAtDate,
-               isWindowReset(previous: oldDate, next: newDate, utilization: tracked.window.utilization) {
-                resets.append(tracked.title)
-            }
-        }
-
-        recordResetsAt(accountID: accountID, response: new)
-
+        // A window missing from this response is titled from the previous one.
+        let windows = Dictionary(((old?.trackedWindows ?? []) + new.trackedWindows).map { ($0.key, $0) },
+                                 uniquingKeysWith: { _, latest in latest })
+        let resets = resetKeys.compactMap { windows[$0] }.filter(isWatched).map(\.title)
         if !resets.isEmpty {
             dispatchNotifications(windows: resets)
-        }
-    }
-
-    private func recordResetsAt(accountID: UUID, response: UsageResponse) {
-        for tracked in response.trackedWindows {
-            if let d = tracked.window.resetsAtDate {
-                statesByAccount[accountID, default: .init()].previousResetsAt[tracked.key] = d
-            }
         }
     }
 
