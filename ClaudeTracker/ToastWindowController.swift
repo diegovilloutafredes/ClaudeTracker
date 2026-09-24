@@ -111,10 +111,12 @@ final class ToastWindowController {
     }
 
     private func frameForIndex(_ index: Int) -> NSRect {
-        let menuBarH   = NSStatusBar.system.thickness
-        let screenFrame = NSScreen.main?.frame ?? .zero
-        let x = screenFrame.maxX - toastWidth - 24
-        let y = screenFrame.maxY - menuBarH - toastHeight - 6 - CGFloat(index) * (toastHeight + gap)
+        // visibleFrame excludes the real menu bar (measured 30 pt on a non-notched display,
+        // taller on notched ones) and the Dock. `NSStatusBar.system.thickness` reports 22 pt,
+        // which let the toast overlap the menu bar.
+        let visible = NSScreen.main?.visibleFrame ?? .zero
+        let x = visible.maxX - toastWidth - 24
+        let y = visible.maxY - toastHeight - 6 - CGFloat(index) * (toastHeight + gap)
         return NSRect(x: x, y: y, width: toastWidth, height: toastHeight)
     }
 
