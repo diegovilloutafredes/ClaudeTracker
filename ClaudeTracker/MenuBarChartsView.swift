@@ -33,6 +33,19 @@ func nearestSample(in pairs: [(Date, Double)], to t: Date, span: TimeInterval) -
     return nearest
 }
 
+/// Width of every chart's trailing y-axis label column (before popup scale). Fixed so the
+/// stacked charts' plots — and so their shared time axis — line up whatever the labels say.
+/// Fits "100%" and the unitless pace labels (`PaceRateUnit.axisLabel`, at most "0.0072").
+let chartYLabelWidth: CGFloat = 26
+
+/// A chart's trailing y-axis label, in the shared fixed-width column.
+private func yAxisLabel(_ text: String, scale: CGFloat) -> some View {
+    Text(text)
+        .font(.system(size: 8 * scale))
+        .lineLimit(1)
+        .frame(width: chartYLabelWidth * scale, alignment: .leading)
+}
+
 /// Time buckets per chart for `downsample`: about one per horizontal point of a chart.
 let chartBuckets = 150
 
@@ -395,7 +408,7 @@ struct MenuBarChartsView: View {
                     .foregroundStyle(Color.secondary.opacity(0.25))
                 AxisValueLabel {
                     if let v = value.as(Double.self) {
-                        Text("\(Int(v))%").font(.system(size: 8 * scale))
+                        yAxisLabel("\(Int(v))%", scale: scale)
                     }
                 }
             }
@@ -549,7 +562,7 @@ private struct MiniChartView: View {
                             .foregroundStyle(Color.secondary.opacity(0.25))
                         AxisValueLabel {
                             if let v = value.as(Double.self) {
-                                Text(format(v)).font(.system(size: 8 * scale))
+                                yAxisLabel(paceRateUnit.map { $0.axisLabel(v) } ?? "\(Int(v))%", scale: scale)
                             }
                         }
                     }

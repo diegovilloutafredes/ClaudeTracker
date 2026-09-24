@@ -612,6 +612,21 @@ enum PaceRateUnit: String, CaseIterable, Identifiable, Sendable {
             return String(format: "\(sign)%.4f%%\(unit)", v)
         }
     }
+
+    /// Chart y-axis label: the rate in this unit, two significant digits, no unit — the pace
+    /// chart's stats row states it, and a unit made the labels 2.5× wider than "100%", which
+    /// narrowed the pace plot out of line with the charts above and below it. POSIX decimal
+    /// point, matching `format`.
+    func axisLabel(_ ratePerHour: Double) -> String {
+        let divisor: Double
+        switch self {
+        case .perHour:   divisor = 1
+        case .perMinute: divisor = 60
+        case .perSecond: divisor = 3600
+        }
+        return (ratePerHour / divisor).formatted(
+            .number.precision(.significantDigits(1...2)).locale(Locale(identifier: "en_US_POSIX")))
+    }
 }
 
 // MARK: - Menu Bar Display Option

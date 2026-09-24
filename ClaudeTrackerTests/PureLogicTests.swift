@@ -575,6 +575,15 @@ final class PureLogicTests: XCTestCase {
 
     // MARK: - PaceRateUnit formatting
 
+    /// Pace chart y-axis labels carry no unit (the stats row above states it), so they are
+    /// as narrow as the utilization charts' and the stacked plots line up.
+    func testPaceAxisLabelIsTheCompactConvertedNumber() {
+        XCTAssertEqual(PaceRateUnit.perHour.axisLabel(26), "26")
+        XCTAssertEqual(PaceRateUnit.perMinute.axisLabel(25.02), "0.42")
+        XCTAssertEqual(PaceRateUnit.perSecond.axisLabel(26), "0.0072")
+        XCTAssertEqual(PaceRateUnit.perMinute.axisLabel(0), "0")
+    }
+
     func testPerHourFormatUsesOneDecimalBelowTen() {
         XCTAssertEqual(PaceRateUnit.perHour.format(9.5), "9.5%/hr")
     }
