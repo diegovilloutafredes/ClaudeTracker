@@ -44,7 +44,14 @@ extension UsageViewModel {
 
         // Roster exists but the stored active id is invalid — fall back to the first.
         let acct = accounts.first { $0.id == activeAccountID } ?? accounts.first
-        if let acct { activate(acct) }
+        if let acct {
+            activate(acct)
+        } else if activeAccountID != nil {
+            // Every row was reclaimed (or the roster failed to decode): forget the stale
+            // selection so the popover offers sign-in instead of an endless "Loading…".
+            activeAccountID = nil
+            AccountStore.saveActiveID(nil)
+        }
     }
 
     /// Makes `account` the active one (persisting the selection), rebuilds the API service

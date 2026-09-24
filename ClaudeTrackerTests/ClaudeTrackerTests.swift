@@ -255,6 +255,24 @@ final class ClaudeTrackerTests: XCTestCase {
         XCTAssertTrue(ClaudeTrackerApp.isRunningUnitTests)
     }
 
+    /// An active id missing from the roster (a placeholder reclaimed at launch, or a roster
+    /// that failed to decode) must not read as signed in: it left the popover on a
+    /// permanent "Loading…" with no sign-in button.
+    @MainActor
+    func testIsAuthenticatedRequiresTheActiveAccountInTheRoster() {
+        let vm = UsageViewModel()
+        vm.activeAccountID = UUID()
+        XCTAssertFalse(vm.isAuthenticated)
+
+        let account = Account(label: "Work")
+        vm.accounts = [account]
+        vm.activeAccountID = account.id
+        XCTAssertTrue(vm.isAuthenticated)
+
+        vm.statesByAccount[account.id, default: .init()].sessionExpired = true
+        XCTAssertFalse(vm.isAuthenticated)
+    }
+
     // MARK: - Helpers
 
     private func makeInfo(caps: [String], tier: String) -> AccountInfo {

@@ -45,9 +45,10 @@ final class UsageViewModel {
     /// Active account's account profile (display name, email, subscription label).
     var accountInfo: AccountInfo? { activeState?.accountInfo }
     /// True when an account is active and its session is healthy. False during migration,
-    /// when no accounts exist, or when a 401 marked the active session expired.
+    /// when no accounts exist, when the active id is missing from the roster (a reclaimed
+    /// placeholder, an undecodable roster), or when a 401 marked the active session expired.
     var isAuthenticated: Bool {
-        guard !isMigrating, let id = activeAccountID else { return false }
+        guard !isMigrating, let id = activeAccountID, accounts.contains(where: { $0.id == id }) else { return false }
         return statesByAccount[id]?.sessionExpired != true
     }
 
