@@ -58,6 +58,12 @@ final class ToastWindowController {
             panel.animator().alphaValue = 1
         }
 
+        // The panel is non-activating, so VoiceOver never moves to it: announce the text.
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
+            .announcement: "\(title). \(message)",
+            .priority: NSAccessibilityPriorityLevel.high.rawValue,
+        ])
+
         guard !permanent else { return id }
 
         let fadeDuration = 0.3
