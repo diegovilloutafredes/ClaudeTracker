@@ -9,13 +9,21 @@ import SwiftUI
 struct ClaudeTrackerApp: App {
     @State private var viewModel: UsageViewModel
 
+    /// True when this process was launched as the host of the unit tests. The test host is
+    /// this app itself (same bundle id, same preferences), so live startup must not run
+    /// there: no polling with the user's sessions, no migration, no login-item changes.
+    static var isRunningUnitTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     init() {
+        let isTestHost = Self.isRunningUnitTests
         // Must run before UsageViewModel reads any UserDefaults. Imports legacy
         // per-account data from the sandbox container path on first launch
         // after the App Sandbox entitlement was removed.
-        SandboxMigration.runIfNeeded()
+        if !isTestHost { SandboxMigration.runIfNeeded() }
         let viewModel = UsageViewModel()
-        viewModel.start()
+        if !isTestHost { viewModel.start() }
         _viewModel = State(initialValue: viewModel)
     }
 

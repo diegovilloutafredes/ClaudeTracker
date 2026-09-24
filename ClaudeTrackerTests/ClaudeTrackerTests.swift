@@ -248,6 +248,13 @@ final class ClaudeTrackerTests: XCTestCase {
         XCTAssertFalse(vm.isAuthenticated)
     }
 
+    /// `make test` launches the app itself as the test host (same bundle id, same
+    /// preferences), so `ClaudeTrackerApp.init` must recognise the run and skip the live
+    /// startup — otherwise every test run polls claude.ai with the user's real sessions.
+    func testTestHostIsRecognisedAsUnitTestRun() {
+        XCTAssertTrue(ClaudeTrackerApp.isRunningUnitTests)
+    }
+
     // MARK: - Helpers
 
     private func makeInfo(caps: [String], tier: String) -> AccountInfo {
