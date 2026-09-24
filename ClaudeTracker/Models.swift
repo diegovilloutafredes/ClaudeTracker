@@ -1133,6 +1133,8 @@ struct AccountState: Sendable {
 /// `activeAccountID` is stored as a UUID string under `"activeAccountID"` (or absent when nil).
 enum AccountStore {
     static let accountsKey = "accounts"
+    /// Where an undecodable roster blob is preserved for manual recovery.
+    static let corruptAccountsKey = accountsKey + ".corrupt"
     static let activeAccountIDKey = "activeAccountID"
 
     static func loadAccounts(from defaults: UserDefaults = .standard) -> [Account] {
@@ -1141,8 +1143,8 @@ enum AccountStore {
             // Preserve the undecodable blob under a sibling key before the empty
             // roster's first save overwrites it — corruption must stay recoverable
             // (via `defaults read` + manual repair), never silently fatal.
-            defaults.set(data, forKey: accountsKey + ".corrupt")
-            AppLogger.shared.error("accounts decode failed — raw blob preserved under \(accountsKey).corrupt")
+            defaults.set(data, forKey: corruptAccountsKey)
+            AppLogger.shared.error("accounts decode failed — raw blob preserved under \(corruptAccountsKey)")
             return []
         }
         return decoded

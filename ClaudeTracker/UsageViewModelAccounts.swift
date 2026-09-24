@@ -68,6 +68,13 @@ extension UsageViewModel {
     /// removed account's cookies on disk indefinitely. Only called once the roster is
     /// final — never mid-migration, which creates its store before registering the account.
     private func sweepOrphanedDataStores() {
+        // An undecodable roster loads as [] with its blob preserved for manual recovery: every
+        // store would look orphaned, and deleting them would leave that recovery without its
+        // sessions. Paused until the blob is repaired or removed.
+        guard UserDefaults.standard.object(forKey: AccountStore.corruptAccountsKey) == nil else {
+            AppLogger.shared.info("orphan sweep skipped: a corrupt roster blob is preserved")
+            return
+        }
         WKWebsiteDataStore.fetchAllDataStoreIdentifiers { [weak self] ids in
             guard let self, !self.isMigrating else { return }
             for id in orphanedDataStoreIDs(existing: ids, roster: self.accounts) {
