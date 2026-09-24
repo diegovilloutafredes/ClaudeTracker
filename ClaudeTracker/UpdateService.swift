@@ -95,6 +95,13 @@ func bundleShortVersion(at appURL: URL) -> String? {
     return plist["CFBundleShortVersionString"] as? String
 }
 
+/// Where an update installs: over the running bundle when its folder is writable (e.g.
+/// `~/Applications` for a standard user, who can't write `/Applications`), else `fallback`
+/// — a translocated or disk-image launch runs from a read-only folder.
+func installDestination(runningBundle: URL, fallback: URL) -> URL {
+    FileManager.default.isWritableFile(atPath: runningBundle.deletingLastPathComponent().path) ? runningBundle : fallback
+}
+
 /// Failed installs of one release that auto-install tolerates before it stops retrying.
 let maxAutoInstallAttempts = 3
 
@@ -316,7 +323,7 @@ final class UpdateService {
                 updateDownloadState = .installing
 
                 // Verify the extracted bundle is actually the promised newer version before
-                // touching /Applications — the download URL was discovered up to 24 h earlier
+                // touching the installed app — the download URL was discovered up to 24 h earlier
                 // and the release asset could have changed since.
                 let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
                 guard let extractedVersion = bundleShortVersion(at: appURL),
@@ -325,10 +332,11 @@ final class UpdateService {
                 }
 
                 // Atomic stage-and-swap: a failure at any step leaves either the old or the
-                // new bundle at the destination — never an empty /Applications slot. The old
-                // bundle path is fully replaced (new inode), so Launch Services can't serve
-                // a stale cached binary.
-                let dest = URL(fileURLWithPath: "/Applications/ClaudeTracker.app")
+                // new bundle at the destination — never an empty slot. The old bundle path is
+                // fully replaced (new inode), so Launch Services can't serve a stale cached
+                // binary.
+                let dest = installDestination(runningBundle: Bundle.main.bundleURL,
+                                              fallback: URL(fileURLWithPath: "/Applications/ClaudeTracker.app"))
                 try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
                     DispatchQueue.global(qos: .userInitiated).async {
                         do {
@@ -353,7 +361,7 @@ final class UpdateService {
                 done
                 pkill -x ClaudeTracker 2>/dev/null
                 sleep 0.3
-                open "/Applications/ClaudeTracker.app"
+                open "$1"
 
                 """
                 let scriptURL = tmpBase.appendingPathComponent("relaunch.sh")
@@ -361,7 +369,8 @@ final class UpdateService {
                 if (try? relaunchScript.write(to: scriptURL, atomically: true, encoding: .utf8)) != nil {
                     let p = Process()
                     p.executableURL = URL(fileURLWithPath: "/bin/bash")
-                    p.arguments = [scriptURL.path]
+                    // The destination travels as an argument, never spliced into the script.
+                    p.arguments = [scriptURL.path, dest.path]
                     usedScript = (try? p.run()) != nil
                 }
                 try await Task.sleep(for: .milliseconds(300))

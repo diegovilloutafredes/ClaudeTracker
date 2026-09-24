@@ -645,6 +645,27 @@ final class AtomicInstallTests: XCTestCase {
         XCTAssertNil(bundleShortVersion(at: tmpDir.appendingPathComponent("Nope.app")))
     }
 
+    // MARK: - Install destination
+
+    func testInstallDestinationReplacesTheRunningBundleWhenItsFolderIsWritable() throws {
+        let running = try makeBundle(named: "Running.app", marker: "old")
+        let fallback = URL(fileURLWithPath: "/Applications/ClaudeTracker.app")
+        XCTAssertEqual(installDestination(runningBundle: running, fallback: fallback), running)
+    }
+
+    func testInstallDestinationFallsBackWhenTheRunningBundlesFolderIsReadOnly() throws {
+        // A translocated or disk-image launch runs from a read-only folder.
+        let folder = tmpDir.appendingPathComponent("ReadOnly")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let running = folder.appendingPathComponent("Running.app")
+        try FileManager.default.createDirectory(at: running, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+
+        let fallback = URL(fileURLWithPath: "/Applications/ClaudeTracker.app")
+        XCTAssertEqual(installDestination(runningBundle: running, fallback: fallback), fallback)
+    }
+
     // MARK: - Auto-install retry cap
 
     func testInstallFailureCountAccumulatesForTheSameVersion() {
