@@ -119,9 +119,9 @@ extension UsageViewModel {
     }
 
     /// Fires a pace alert through all enabled channels when a watched window is on track to
-    /// fill before it resets. Each window triggers at most one alert per concerning episode:
-    /// the warned flag re-arms when the pace improves past the threshold (so a later
-    /// re-acceleration in the same window warns again) and on window reset.
+    /// fill before it resets. Thin delegation: the per-window state machine (warn once per
+    /// episode, hysteresis on re-arm, clearing unwatched windows) is the pure, tested
+    /// `paceAlertStep` in Models.swift.
     func checkPaceNotifications(accountID: UUID, response: UsageResponse) {
         // Only the active account should trigger pace toasts/sounds.
         let isActive = (accountID == activeAccountID)
@@ -134,50 +134,30 @@ extension UsageViewModel {
             return
         }
 
-        let candidates = response.trackedWindows.map { (key: $0.key, name: $0.title, watched: isWatched($0)) }
-
-        for (key, name, watched) in candidates {
-            guard watched else {
-                // A window that just became unwatched (e.g. "Show per-model usage"
-                // toggled off) must not strand its toast on screen or stay warned.
-                var s = statesByAccount[accountID] ?? .init()
-                clearPaceAlert(&s, key: key)
-                statesByAccount[accountID] = s
-                continue
-            }
-            let paceData = pace(accountID: accountID, key: key)
-            let isConcerning = paceData.flatMap(\.projectedHours).map { $0 * 60 < paceWarningMinutes } ?? false
-            var s = statesByAccount[accountID] ?? .init()
-            if isConcerning, !s.paceWarned.contains(key), let pd = paceData, let projHours = pd.projectedHours {
-                s.paceWarned.insert(key)
-                if let tid = dispatchPaceAlert(name: name, minsLeft: max(1, Int(projHours * 60)), rate: pd.rate) {
-                    s.paceToastIDs[key] = tid
-                }
-            } else if !isConcerning, s.paceWarned.contains(key) {
-                // Pace improved past the threshold — dismiss the alert even if set to
-                // permanent, and re-arm so a later re-acceleration in the same window
-                // can warn again (previously the flag stayed set for the whole window).
-                if let tid = s.paceToastIDs.removeValue(forKey: key) {
-                    ToastWindowController.shared.dismiss(id: tid)
-                }
-                // Re-arm only once the projection clears the threshold with 25% margin
-                // (or pace vanished): the 5-minute regression jitters, and re-arming at
-                // the exact boundary would re-fire toast + sound every few polls.
-                let projMinutes = paceData.flatMap(\.projectedHours).map { $0 * 60 }
-                if paceData == nil || (projMinutes ?? .infinity) > paceWarningMinutes * 1.25 {
-                    s.paceWarned.remove(key)
-                }
-            }
-            statesByAccount[accountID] = s
+        var s = statesByAccount[accountID] ?? .init()
+        var candidates = response.trackedWindows.map { (key: $0.key, name: $0.title, watched: isWatched($0)) }
+        // A window that left the response (a scoped limit entry gone, or a built-in window
+        // the API nulled out — Team orgs null `five_hour` when idle) is cleared like an
+        // unwatched one. Its warned flag used to linger when no toast was showing
+        // (sound-only alerts), so the window never warned again once it came back.
+        let present = Set(candidates.map(\.key))
+        for key in Set(s.paceToastIDs.keys).union(s.paceWarned).subtracting(present).sorted() {
+            candidates.append((key: key, name: key, watched: false))
         }
 
-        // A toast for a window that vanished from the response (a scoped limit entry gone,
-        // or a built-in window the API nulled out — Team orgs null `five_hour` when idle)
-        // never reaches the improvement branch above — sweep it here so it can re-arm.
-        var s = statesByAccount[accountID] ?? .init()
-        let candidateKeys = Set(candidates.map(\.key))
-        for key in s.paceToastIDs.keys where !candidateKeys.contains(key) {
-            clearPaceAlert(&s, key: key)
+        for (key, name, watched) in candidates {
+            let paceData = pace(accountID: accountID, key: key)
+            let minutes = paceData?.projectedHours.map { $0 * 60 }
+            let step = paceAlertStep(watched: watched, warned: s.paceWarned.contains(key),
+                                     projectedMinutes: minutes, threshold: paceWarningMinutes)
+            if step.dismiss, let tid = s.paceToastIDs.removeValue(forKey: key) {
+                ToastWindowController.shared.dismiss(id: tid)
+            }
+            if step.fire, let paceData, let minutes,
+               let tid = dispatchPaceAlert(name: name, minsLeft: max(1, Int(minutes)), rate: paceData.rate) {
+                s.paceToastIDs[key] = tid
+            }
+            if step.warned { s.paceWarned.insert(key) } else { s.paceWarned.remove(key) }
         }
         statesByAccount[accountID] = s
     }

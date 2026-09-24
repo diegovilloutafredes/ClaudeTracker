@@ -432,6 +432,31 @@ func earlyFillLead(hours early: Double) -> (hours: Int, minutes: Int) {
     return (totalMinutes / 60, totalMinutes % 60)
 }
 
+// MARK: - Pace Alerts
+
+/// One poll's outcome for a window's pace alert: fire a new alert, dismiss its toast, and
+/// whether the window stays warned afterwards.
+struct PaceAlertStep: Equatable, Sendable {
+    var fire = false
+    var dismiss = false
+    var warned: Bool
+}
+
+/// The pace-alert state machine for one window. It warns at most once per concerning
+/// episode (projected to fill within `threshold` minutes). Once the projection clears the
+/// threshold the toast goes, but the window re-arms only past 1.25× the threshold, or when
+/// the projection disappears: the 5-minute regression jitters, and re-arming at the exact
+/// boundary would re-fire toast and sound every few polls. An unwatched window, and one
+/// that left the response, is cleared outright so it can warn again later.
+func paceAlertStep(watched: Bool, warned: Bool, projectedMinutes: Double?, threshold: Double) -> PaceAlertStep {
+    guard watched else { return PaceAlertStep(dismiss: true, warned: false) }
+    if let minutes = projectedMinutes, minutes < threshold {
+        return PaceAlertStep(fire: !warned, warned: true)
+    }
+    guard warned else { return PaceAlertStep(warned: false) }
+    return PaceAlertStep(dismiss: true, warned: (projectedMinutes ?? .infinity) <= threshold * 1.25)
+}
+
 // MARK: - Usage History
 
 /// A single timestamped utilization snapshot, stored persistently for the charts tab.

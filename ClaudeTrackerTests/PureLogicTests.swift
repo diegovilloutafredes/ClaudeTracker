@@ -236,6 +236,40 @@ final class PureLogicTests: XCTestCase {
         XCTAssertEqual(decodeHiddenKeys(encodeHiddenKeys(keys)), keys)
     }
 
+    // MARK: - Pace alert state machine
+
+    func testPaceAlertFiresOncePerConcerningEpisode() {
+        let first = paceAlertStep(watched: true, warned: false, projectedMinutes: 20, threshold: 30)
+        XCTAssertEqual(first, PaceAlertStep(fire: true, warned: true))
+        let second = paceAlertStep(watched: true, warned: true, projectedMinutes: 15, threshold: 30)
+        XCTAssertEqual(second, PaceAlertStep(warned: true))
+    }
+
+    func testPaceAlertDismissesButStaysWarnedInsideTheHysteresisBand() {
+        // 35 min clears the 30-min threshold but not 1.25× (37.5): re-arming here would
+        // re-fire toast and sound every few polls as the regression jitters.
+        XCTAssertEqual(paceAlertStep(watched: true, warned: true, projectedMinutes: 35, threshold: 30),
+                       PaceAlertStep(dismiss: true, warned: true))
+    }
+
+    func testPaceAlertRearmsPastTheHysteresisBandOrWhenPaceVanishes() {
+        XCTAssertEqual(paceAlertStep(watched: true, warned: true, projectedMinutes: 40, threshold: 30),
+                       PaceAlertStep(dismiss: true, warned: false))
+        XCTAssertEqual(paceAlertStep(watched: true, warned: true, projectedMinutes: nil, threshold: 30),
+                       PaceAlertStep(dismiss: true, warned: false))
+    }
+
+    func testPaceAlertClearsAnUnwatchedWindow() {
+        // Also how a window that left the response is cleared, so it can warn if it returns.
+        XCTAssertEqual(paceAlertStep(watched: false, warned: true, projectedMinutes: 10, threshold: 30),
+                       PaceAlertStep(dismiss: true, warned: false))
+    }
+
+    func testPaceAlertStaysQuietBelowTheThreshold() {
+        XCTAssertEqual(paceAlertStep(watched: true, warned: false, projectedMinutes: 35, threshold: 30),
+                       PaceAlertStep(warned: false))
+    }
+
     // MARK: - PaceBand
 
     func testPaceBandSafeWhenProjectionBeyondReset() {
