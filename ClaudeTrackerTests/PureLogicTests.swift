@@ -92,6 +92,22 @@ final class PureLogicTests: XCTestCase {
         XCTAssertEqual(adaptivePollInterval(windows: [], projectedMinutes: { _ in nil }), 10)
     }
 
+    // MARK: - Poll log throttle
+
+    func testPollLogSkipsARepeatedLineUntilTheHeartbeat() {
+        let now = Date()
+        let line = "poll: next in 10.0s (base=10.0s util=13%)"
+        XCTAssertTrue(shouldLogPoll(line, last: nil, now: now))
+        XCTAssertFalse(shouldLogPoll(line, last: (line, now.addingTimeInterval(-60)), now: now))
+        XCTAssertTrue(shouldLogPoll(line, last: (line, now.addingTimeInterval(-600)), now: now))
+    }
+
+    func testPollLogKeepsEveryChange() {
+        let now = Date()
+        XCTAssertTrue(shouldLogPoll("poll: next in 5.0s (base=5.0s util=81%)",
+                                    last: ("poll: next in 8.0s (base=8.0s util=79%)", now.addingTimeInterval(-3)), now: now))
+    }
+
     // MARK: - Error backoff
 
     func testErrorBackoffScalesAndCaps() {

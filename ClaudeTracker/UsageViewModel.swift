@@ -172,6 +172,8 @@ final class UsageViewModel {
     /// is rebuilt against a different `WKWebsiteDataStore` whenever the active account changes.
     @ObservationIgnored var apiService: ClaudeAPIService?
     @ObservationIgnored private var timer: Task<Void, Never>?
+    /// The last "poll: next in …" line written, for `shouldLogPoll`.
+    @ObservationIgnored private var lastPollLog: (line: String, at: Date)?
     @ObservationIgnored private var appearanceCancellable: AnyCancellable?
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
@@ -483,8 +485,13 @@ final class UsageViewModel {
             let stem = (error ?? "Error").components(separatedBy: " (retry in ").first ?? "Error"
             statesByAccount[id, default: .init()].error = String(format: String(localized: "%@ (retry in %ds)"), stem, Int(interval))
         }
-        AppLogger.shared.info("poll: next in \(String(format: "%.1f", interval))s "
-                              + "(base=\(String(format: "%.1f", base))s util=\(String(format: "%.0f", maxUtilization))%)")
+        let pollLine = "poll: next in \(String(format: "%.1f", interval))s "
+            + "(base=\(String(format: "%.1f", base))s util=\(String(format: "%.0f", maxUtilization))%)"
+        let now = Date()
+        if shouldLogPoll(pollLine, last: lastPollLog, now: now) {
+            AppLogger.shared.info(pollLine)
+            lastPollLog = (pollLine, now)
+        }
         timer = Task { [weak self] in
             try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled else { return }

@@ -356,6 +356,15 @@ func pollIntervalForProjectedMinutes(_ projMins: Double) -> TimeInterval {
     }
 }
 
+/// Whether a poll's "next in …" line is worth logging: it differs from the last logged
+/// one, or `heartbeat` has passed since. Logged on every poll (1–10 s apart) the line was
+/// ~99% of the log, and the 512 KB rotation pushed everything useful out within a day.
+func shouldLogPoll(_ line: String, last: (line: String, at: Date)?, now: Date,
+                   heartbeat: TimeInterval = 600) -> Bool {
+    guard let last else { return true }
+    return line != last.line || now.timeIntervalSince(last.at) >= heartbeat
+}
+
 /// Additional poll delay after consecutive fetch errors: 10 s per error, capped at 60 s.
 func errorBackoff(consecutiveErrors: Int) -> TimeInterval {
     consecutiveErrors > 0 ? min(Double(consecutiveErrors) * 10, 60) : 0
