@@ -27,7 +27,7 @@ Generating the project SHALL NOT change build output. The resolved build setting
 #### Scenario: Info.plist preserved
 
 - **WHEN** the app is built from the generated project
-- **THEN** the bundled `Info.plist` SHALL retain `LSUIElement` (no dock icon), `SUFeedURL`, and `CFBundleShortVersionString` matching `MARKETING_VERSION`
+- **THEN** the bundled `Info.plist` SHALL retain `LSUIElement` (no dock icon) and `CFBundleShortVersionString` matching `MARKETING_VERSION` (the Sparkle `SUFeedURL` placeholder the migration also preserved was removed on 2026-09-23; the app uses its own GitHub-release updater)
 
 ### Requirement: CI generates the project explicitly
 
