@@ -13,6 +13,18 @@ extension UsageViewModel {
         return paceRateUnit.format(paceData.rate, prefix: true, short: true)
     }
 
+    /// VoiceOver text for the menu bar item. The composed image has no text of its own, so
+    /// the item used to read as a bare "status menu".
+    var menuBarAccessibilityLabel: String {
+        // Same states as `statusText`: "–", "!", "…", then the percentage.
+        guard isAuthenticated else { return String(localized: "Claude Tracker, signed out") }
+        if usage == nil, error != nil { return String(localized: "Claude Tracker, usage unavailable") }
+        guard usage != nil, !isDataStale else { return String(localized: "Claude Tracker, updating") }
+        let text = String(format: String(localized: "Claude Tracker, %@ at %@"), menuBarWindow.label, statusText)
+        guard menuBarPaceText != nil, let rate = pace(for: menuBarWindow.rawValue)?.rate else { return text }
+        return String(format: String(localized: "%@, pace %@"), text, paceRateUnit.format(rate, prefix: true))
+    }
+
     private func menuBarPaceColor(urgency: Double) -> NSColor {
         // Safe pace is neutral, matching the popover's gray rate text.
         guard urgency > 0 else { return .secondaryLabelColor }

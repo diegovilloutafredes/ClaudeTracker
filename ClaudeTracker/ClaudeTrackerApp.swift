@@ -33,6 +33,7 @@ struct ClaudeTrackerApp: App {
             MenuBarView(viewModel: viewModel)
         } label: {
             Image(nsImage: viewModel.menuBarImage)
+                .accessibilityLabel(Text(viewModel.menuBarAccessibilityLabel))
         }
         .menuBarExtraStyle(.window)
 

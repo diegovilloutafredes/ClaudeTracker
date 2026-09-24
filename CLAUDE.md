@@ -78,6 +78,8 @@ The image does **not** use `isTemplate = true` — the icon color is applied via
 
 Do NOT attempt `HStack { Image; Text }`, `Label(text, systemImage:)`, `Text("\(Image(...)) text")`, or the `MenuBarExtra(title, systemImage:)` init — all show the icon but hide the text.
 
+**VoiceOver:** the composed image has no text of its own, so the status item read as a bare "status menu". The label `Image` carries `.accessibilityLabel(viewModel.menuBarAccessibilityLabel)` ("Claude Tracker, 5-Hour Window at 51%", plus the pace when the badge shows, or signed out / usage unavailable / updating — the same states as `statusText`). Checked through the AX API: the status item's title picks it up, so `NSImage.accessibilityDescription` isn't needed.
+
 **Login window memory management:** The `NSWindow` created by `LoginWindowController` must have `isReleasedWhenClosed = false`. The default (`true`) causes the window to be added to the ObjC autorelease pool on `close()`, while Swift ARC also holds a strong reference via `self.window`. Setting `self.window = nil` after `close()` results in a double-release that crashes during the next Core Animation transaction flush. **This applies to every ARC-owned window in the app** — the toast `NSPanel`s in `ToastWindowController.makePanel()` set it too; any new window/panel that is closed programmatically must do the same.
 
 **Notifications:** `UNUserNotificationCenterDelegate` must be a separate `NSObject` subclass — assigning a `@MainActor` class as delegate causes Swift concurrency compiler errors. Sound is handled by `NSSound` independently of `UNUserNotificationCenter` to prevent double-play when both channels are enabled.

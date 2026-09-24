@@ -45,6 +45,16 @@
         }
       }
     },
+    "%@, pace %@": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, ritmo %@"
+          }
+        }
+      }
+    },
     "24-hour": {
       "comment": "Time format picker option (paired with AM/PM): 24-hour clock",
       "localizations": {
@@ -315,6 +325,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "Claude Tracker"
+          }
+        }
+      }
+    },
+    "Claude Tracker, %@ at %@": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Tracker, %@ al %@"
+          }
+        }
+      }
+    },
+    "Claude Tracker, signed out": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Tracker, sesión cerrada"
+          }
+        }
+      }
+    },
+    "Claude Tracker, updating": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Tracker, actualizando"
+          }
+        }
+      }
+    },
+    "Claude Tracker, usage unavailable": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Tracker, uso no disponible"
           }
         }
       }
