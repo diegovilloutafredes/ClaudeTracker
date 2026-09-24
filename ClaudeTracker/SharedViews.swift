@@ -11,6 +11,10 @@ struct SubscriptionBadge: View {
     var body: some View {
         Text(label)
             .font(.system(size: 10 * scale, weight: .semibold))
+            // Never wraps: beside the fixed-size account menu, the header squeezed
+            // "Max 5×" onto two lines inside a circle.
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 6 * scale)
             .padding(.vertical, 2 * scale)
             .background(Color.purple.opacity(0.15), in: Capsule())
