@@ -171,6 +171,9 @@ final class UsageViewModel {
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
     @ObservationIgnored var sessionTask: Task<Void, Never>?
+    /// The account that was active before `addAccount` switched to a fresh placeholder, so
+    /// cancelling that sign-in returns there instead of to whichever account is first.
+    @ObservationIgnored var accountBeforePendingAdd: UUID?
     /// Avoids rebuilding `menuBarImage` when neither the icon name nor the status text has
     /// changed. Internal so the `UsageViewModelMenuBar.swift` extension can read/write.
     /// `@ObservationIgnored` is mandatory: the `menuBarImage` getter runs inside the

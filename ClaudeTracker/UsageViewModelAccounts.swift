@@ -140,6 +140,7 @@ extension UsageViewModel {
         // A new session starts the 401 count over; a leftover count would expire it on its
         // first transient 401 instead of allowing the usual silent retry.
         statesByAccount[id, default: .init()].consecutive401s = 0
+        accountBeforePendingAdd = nil
         // The account is real now — clear the pending flag so a later launch doesn't
         // reclaim it as an abandoned placeholder. (Array reassign: see renameAccount.)
         if let idx = accounts.firstIndex(where: { $0.id == id }), accounts[idx].pending == true {
@@ -220,6 +221,10 @@ extension UsageViewModel {
         // Cancel any in-flight work tied to the previous account.
         cancelInFlightWork()
         dismissPaceToasts(for: activeAccountID)
+        // A second "Add account" while a placeholder is active keeps the original to return to.
+        if accounts.first(where: { $0.id == activeAccountID })?.pending != true {
+            accountBeforePendingAdd = activeAccountID
+        }
         activeAccountID = acct.id
         AccountStore.saveActiveID(acct.id)
         buildActiveService(for: acct)
@@ -232,7 +237,11 @@ extension UsageViewModel {
         guard accounts.contains(where: { $0.id == acct.id }),
               statesByAccount[acct.id]?.usage == nil,
               statesByAccount[acct.id]?.accountInfo == nil else { return }
-        removeAccount(acct.id)
+        // Only the active placeholder's rollback consumes the saved account; an earlier
+        // placeholder rolled back when the login window is reused must leave it in place.
+        let wasActive = activeAccountID == acct.id
+        removeAccount(acct.id, preferring: accountBeforePendingAdd)
+        if wasActive { accountBeforePendingAdd = nil }
     }
 
     /// Creates a new account, makes it active, and opens the login window against its data store.
@@ -248,9 +257,10 @@ extension UsageViewModel {
     }
 
     /// Removes an account: tears down its API service if active, deletes its persistent data
-    /// store, removes its namespaced UserDefaults entries, and switches to the next account
-    /// (or the empty state if none remains).
-    func removeAccount(_ id: UUID) {
+    /// store, removes its namespaced UserDefaults entries, and switches to `preferredNext` when
+    /// it still exists (a cancelled add returns to the account the user was on), otherwise to
+    /// the first account (or the empty state if none remains).
+    func removeAccount(_ id: UUID, preferring preferredNext: UUID? = nil) {
         let wasActive = (activeAccountID == id)
         if wasActive {
             cancelInFlightWork()
@@ -269,7 +279,7 @@ extension UsageViewModel {
             UserDefaults.standard.removeObject(forKey: AccountStore.usageHistoryKey(for: id))
         }
         if wasActive {
-            if let next = accounts.first {
+            if let next = accounts.first(where: { $0.id == preferredNext }) ?? accounts.first {
                 activate(next)
             } else {
                 activeAccountID = nil
