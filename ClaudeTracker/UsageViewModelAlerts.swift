@@ -69,7 +69,12 @@ extension UsageViewModel {
 
     private func dispatchNotifications(windows: [String]) {
         let title = String(localized: "Claude Usage Reset")
-        let body  = String(format: String(localized: "%@ reset — you're good to go!"), windows.joined(separator: " & "))
+        // Locale list join ("A and B" / "A y B"), and a separate key for several windows:
+        // Spanish inflects the verb ("se reinició" vs "se reiniciaron").
+        let names = windows.formatted(.list(type: .and))
+        let body = windows.count > 1
+            ? String(format: String(localized: "%@ have reset — you're good to go!"), names)
+            : String(format: String(localized: "%@ reset — you're good to go!"), names)
 
         if notifyToast       { ToastWindowController.shared.show(title: title, message: body, duration: toastDuration, permanent: toastPermanent) }
         if resetSoundEnabled { NSSound(named: .init("Hero"))?.play() }

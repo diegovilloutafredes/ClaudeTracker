@@ -199,17 +199,6 @@
         }
       }
     },
-    "Alert when a watched window is projected to fill before it resets, based on your current consumption rate.": {
-      "comment": "Pace Alerts section footer in settings",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alertar cuando se proyecta que una ventana vigilada se llenará antes de reiniciarse, según tu tasa de consumo actual."
-          }
-        }
-      }
-    },
     "All clear — window resets first": {
       "comment": "Pace outlook: safe, window resets before limit",
       "localizations": {
@@ -439,17 +428,6 @@
         }
       }
     },
-    "Fires all enabled channels with a simulated reset": {
-      "comment": "Description text next to test notification button",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activa todos los canales habilitados con un reinicio simulado"
-          }
-        }
-      }
-    },
     "Forecast": {
       "comment": "Label for the projection chart showing expected vs extrapolated usage",
       "localizations": {
@@ -490,17 +468,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Instalar"
-          }
-        }
-      }
-    },
-    "Installation failed": {
-      "comment": "Auto-update error: could not install app to /Applications/",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error en la instalación"
           }
         }
       }
@@ -713,17 +680,6 @@
         }
       }
     },
-    "Poll every": {
-      "comment": "Label for refresh interval slider in settings",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Consultar cada"
-          }
-        }
-      }
-    },
     "Popup size": {
       "comment": "Settings slider label for popover scale",
       "localizations": {
@@ -753,28 +709,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Límite de tasa alcanzado — reintentando pronto"
-          }
-        }
-      }
-    },
-    "Rate window": {
-      "comment": "Label for pace history window picker (5/10/15/30 min)",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ventana de tasa"
-          }
-        }
-      }
-    },
-    "Refresh Interval": {
-      "comment": "Settings section header for refresh interval",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Intervalo de actualización"
           }
         }
       }
@@ -933,17 +867,6 @@
         }
       }
     },
-    "Show pace indicator": {
-      "comment": "Toggle to show or hide pace line in usage windows",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar indicador de ritmo"
-          }
-        }
-      }
-    },
     "Show per-model usage": {
       "comment": "Settings toggle to show or hide the per-model usage rows (legacy Sonnet sub-window and model-scoped limits such as Fable) in the Usage tab",
       "localizations": {
@@ -999,17 +922,6 @@
         }
       }
     },
-    "Sign out": {
-      "comment": "Button to sign out of the current session",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cerrar sesión"
-          }
-        }
-      }
-    },
     "Sign out & remove": {
       "comment": "Tooltip for the trash icon in the Settings Accounts list",
       "localizations": {
@@ -1031,17 +943,6 @@
         }
       }
     },
-    "Signed in": {
-      "comment": "Account status label when authenticated but account info unavailable",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sesión iniciada"
-          }
-        }
-      }
-    },
     "Signed in! Closing…": {
       "comment": "Success banner in login window after session cookie detected",
       "localizations": {
@@ -1049,17 +950,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "¡Sesión iniciada! Cerrando…"
-          }
-        }
-      }
-    },
-    "Sound": {
-      "comment": "Toggle for notification sound",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sonido"
           }
         }
       }
@@ -1086,17 +976,6 @@
         }
       }
     },
-    "System notification banner": {
-      "comment": "Toggle for macOS system notification banner",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Banner de notificación del sistema"
-          }
-        }
-      }
-    },
     "Test": {
       "comment": "Button to send a test notification",
       "localizations": {
@@ -1115,17 +994,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Formato de hora"
-          }
-        }
-      }
-    },
-    "Toast duration": {
-      "comment": "Slider label for pace alert toast duration",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Duración del aviso"
           }
         }
       }
@@ -1184,17 +1052,6 @@
         }
       }
     },
-    "Updated %@ ago": {
-      "comment": "Last-updated timestamp in popover footer: Updated <relative time> ago",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Actualizado hace %@"
-          }
-        }
-      }
-    },
     "Usage": {
       "comment": "Usage tab label",
       "localizations": {
@@ -1235,17 +1092,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Alcanzará el límite %@ antes del reinicio"
-          }
-        }
-      }
-    },
-    "Window Reset Notifications": {
-      "comment": "Settings section header for reset notification controls",
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notificaciones de reinicio de ventana"
           }
         }
       }
@@ -1399,6 +1245,314 @@
           "stringUnit": {
             "state": "translated",
             "value": "Contenido del gráfico"
+          }
+        }
+      }
+    },
+    "": {
+      "shouldTranslate": false
+    },
+    "%lld%%": {
+      "shouldTranslate": false
+    },
+    "%llds": {
+      "shouldTranslate": false
+    },
+    "0%": {
+      "shouldTranslate": false
+    },
+    "∞": {
+      "shouldTranslate": false
+    },
+    "%@ have reset — you're good to go!": {
+      "comment": "Reset toast body when several windows reset at once; %@ is the list of window names",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¡%@ se reiniciaron — ya puedes continuar!"
+          }
+        }
+      }
+    },
+    "%lldm": {
+      "comment": "Pace-alert threshold slider readout, in minutes",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld min"
+          }
+        }
+      }
+    },
+    "Auto-install updates": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar actualizaciones automáticamente"
+          }
+        }
+      }
+    },
+    "Cancel": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
+          }
+        }
+      }
+    },
+    "Cloudflare check — retrying": {
+      "comment": "Shown after 'Network error:' while an API call is behind a Cloudflare challenge",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificación de Cloudflare — reintentando"
+          }
+        }
+      }
+    },
+    "Error and API logs for debugging": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registros de errores y de la API para depuración"
+          }
+        }
+      }
+    },
+    "Fires when a watched window is projected to fill before it resets, based on your current consumption rate.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se activa cuando se proyecta que una ventana vigilada se llenará antes de reiniciarse, según tu ritmo de consumo actual."
+          }
+        }
+      }
+    },
+    "Forecast chart": {
+      "comment": "Accessibility label of the forecast chart",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gráfico de pronóstico"
+          }
+        }
+      }
+    },
+    "Open Logs": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir registros"
+          }
+        }
+      }
+    },
+    "Per Hour": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por hora"
+          }
+        }
+      }
+    },
+    "Per Minute": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por minuto"
+          }
+        }
+      }
+    },
+    "Per Second": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por segundo"
+          }
+        }
+      }
+    },
+    "Rate unit": {
+      "comment": "Settings: time unit for the pace rate",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unidad de ritmo"
+          }
+        }
+      }
+    },
+    "Selected": {
+      "comment": "Chart accessibility: the hovered time",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleccionado"
+          }
+        }
+      }
+    },
+    "Series": {
+      "comment": "Chart accessibility: a data series",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serie"
+          }
+        }
+      }
+    },
+    "Session expired": {
+      "comment": "Popover state after claude.ai rejected the session twice",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión expirada"
+          }
+        }
+      }
+    },
+    "Show pace in menu bar": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar ritmo en la barra de menús"
+          }
+        }
+      }
+    },
+    "Simulates a pace alert through all enabled channels": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simula una alerta de ritmo por todos los canales activados"
+          }
+        }
+      }
+    },
+    "Simulates a window reset through all enabled channels": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simula un reinicio de ventana por todos los canales activados"
+          }
+        }
+      }
+    },
+    "Sound (Basso)": {
+      "comment": "Basso is the macOS system sound name",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonido (Basso)"
+          }
+        }
+      }
+    },
+    "Sound (Hero)": {
+      "comment": "Hero is the macOS system sound name",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonido (Hero)"
+          }
+        }
+      }
+    },
+    "Time": {
+      "comment": "Chart axis / accessibility: time",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hora"
+          }
+        }
+      }
+    },
+    "Update available": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualización disponible"
+          }
+        }
+      }
+    },
+    "Window Resets": {
+      "comment": "Settings section title",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reinicios de ventana"
+          }
+        }
+      }
+    },
+    "Window reset — refreshing…": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ventana reiniciada — actualizando…"
+          }
+        }
+      }
+    },
+    "v%@ found — installing in ~10s": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "v%@ encontrada — instalando en ~10 s"
+          }
+        }
+      }
+    },
+    "v%@ is ready — open Settings to install": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "v%@ está lista — abre Ajustes para instalarla"
+          }
+        }
+      }
+    },
+    "~%dh %dm": {
+      "comment": "How long before its reset a window fills: hours and minutes (under 3 h)",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~%d h %d min"
           }
         }
       }
