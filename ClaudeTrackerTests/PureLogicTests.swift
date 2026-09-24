@@ -490,6 +490,8 @@ final class PureLogicTests: XCTestCase {
         XCTAssertEqual(FetchFailure(message: "Error: HTTP_404"), .notFound)
         XCTAssertEqual(FetchFailure(message: "Error: HTTP_500"), .http)
         XCTAssertEqual(FetchFailure(message: "TypeError: Load failed"), .network)
+        // A message wrapped in other text still classifies (the description fallback).
+        XCTAssertEqual(FetchFailure(message: "A JavaScript exception occurred: Error: HTTP_401"), .unauthorized)
     }
 
     /// WebKit's error text is only "A JavaScript exception occurred"; the thrown message
