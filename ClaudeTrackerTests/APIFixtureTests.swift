@@ -2,257 +2,16 @@ import XCTest
 import SwiftUI
 @testable import ClaudeTracker
 
-/// Verbatim /api/organizations/{id}/usage response captured 2026-09-10 (Max 5x org).
-private let livePayload20260910 = """
-{
-  "five_hour": {
-    "utilization": 4,
-    "resets_at": "2026-09-10T17:30:00.444237+00:00",
-    "limit_dollars": null,
-    "used_dollars": null,
-    "remaining_dollars": null,
-    "locked_reason": null
-  },
-  "seven_day": {
-    "utilization": 38,
-    "resets_at": "2026-09-10T21:00:00.444261+00:00",
-    "limit_dollars": null,
-    "used_dollars": null,
-    "remaining_dollars": null,
-    "locked_reason": null
-  },
-  "seven_day_oauth_apps": null,
-  "seven_day_opus": null,
-  "seven_day_sonnet": null,
-  "seven_day_cowork": null,
-  "seven_day_omelette": null,
-  "tangelo": null,
-  "iguana_necktie": null,
-  "omelette_promotional": null,
-  "nimbus_quill": {
-    "utilization": 0,
-    "resets_at": null,
-    "limit_dollars": null,
-    "used_dollars": null,
-    "remaining_dollars": null,
-    "locked_reason": null
-  },
-  "cinder_cove": null,
-  "copper_kite": null,
-  "amber_ladder": null,
-  "juniper_tide": null,
-  "extra_usage": {
-    "is_enabled": false,
-    "monthly_limit": null,
-    "used_credits": null,
-    "utilization": null,
-    "currency": null,
-    "decimal_places": null,
-    "disabled_reason": null,
-    "user_disabled": false,
-    "spend_limit_reached": false,
-    "credits_ever_enabled": false,
-    "daily": null,
-    "weekly": null
-  },
-  "limits": [
-    {
-      "kind": "session",
-      "group": "session",
-      "percent": 4,
-      "severity": "normal",
-      "resets_at": "2026-09-10T17:30:00.444237+00:00",
-      "scope": null,
-      "is_active": false
-    },
-    {
-      "kind": "weekly_all",
-      "group": "weekly",
-      "percent": 38,
-      "severity": "normal",
-      "resets_at": "2026-09-10T21:00:00.444261+00:00",
-      "scope": null,
-      "is_active": false
-    },
-    {
-      "kind": "weekly_scoped",
-      "group": "weekly",
-      "percent": 75,
-      "severity": "warning",
-      "resets_at": "2026-09-10T21:00:00.444470+00:00",
-      "scope": {
-        "model": {
-          "id": null,
-          "display_name": "Fable"
-        },
-        "surface": null
-      },
-      "is_active": true
-    }
-  ],
-  "spend": {
-    "used": {
-      "amount_minor": 0,
-      "currency": "USD",
-      "exponent": 2
-    },
-    "limit": null,
-    "percent": 0,
-    "severity": "normal",
-    "enabled": false,
-    "disabled_reason": null,
-    "cap": null,
-    "balance": null,
-    "auto_reload": null,
-    "disclaimer": "Usage credits cover you when you hit your plan limits. [Learn more](https://support.claude.com/articles/12429409)",
-    "can_purchase_credits": true,
-    "can_toggle": true
-  },
-  "member_dashboard_available": false,
-  "seven_day_breakdown": null
+/// Verbatim /api/organizations/{id}/usage responses captured live, kept as JSON resources in
+/// `Fixtures/` (`live-usage-<date>.json`) so this file stays under SwiftLint's length limit
+/// as new shapes are captured:
+/// - 2026-09-10, Max 5x org.
+/// - 2026-09-21, Max 5x org: first sighting of a populated `seven_day_breakdown` and of four
+///   more null window keys.
+private func livePayload(_ date: String) throws -> String {
+    let url = try XCTUnwrap(Bundle(for: APIFixtureTests.self).url(forResource: "live-usage-\(date)", withExtension: "json"))
+    return try String(contentsOf: url, encoding: .utf8)
 }
-"""
-
-/// Verbatim /api/organizations/{id}/usage response captured 2026-09-21 (Max 5x org).
-/// First sighting of a populated `seven_day_breakdown` and of four more null window keys.
-private let livePayload20260921 = """
-{
-  "five_hour": {
-    "utilization": 4,
-    "resets_at": "2026-09-22T07:10:00.734726+00:00",
-    "limit_dollars": null,
-    "used_dollars": null,
-    "remaining_dollars": null,
-    "locked_reason": null
-  },
-  "seven_day": {
-    "utilization": 3,
-    "resets_at": "2026-09-24T21:00:00.734780+00:00",
-    "limit_dollars": null,
-    "used_dollars": null,
-    "remaining_dollars": null,
-    "locked_reason": null
-  },
-  "seven_day_oauth_apps": null,
-  "seven_day_opus": null,
-  "seven_day_sonnet": null,
-  "seven_day_cowork": null,
-  "seven_day_omelette": null,
-  "tangelo": null,
-  "iguana_necktie": null,
-  "omelette_promotional": null,
-  "nimbus_quill": {
-    "utilization": 0,
-    "resets_at": null,
-    "limit_dollars": null,
-    "used_dollars": null,
-    "remaining_dollars": null,
-    "locked_reason": null
-  },
-  "cinder_cove": null,
-  "copper_kite": null,
-  "harbor_lantern": null,
-  "wattle_ember": null,
-  "amber_ladder": null,
-  "juniper_tide": null,
-  "cedar_ember": null,
-  "amber_gauge": null,
-  "extra_usage": {
-    "is_enabled": false,
-    "monthly_limit": null,
-    "used_credits": null,
-    "utilization": null,
-    "currency": null,
-    "decimal_places": null,
-    "disabled_reason": null,
-    "user_disabled": false,
-    "spend_limit_reached": false,
-    "credits_ever_enabled": false,
-    "daily": null,
-    "weekly": null
-  },
-  "limits": [
-    {
-      "kind": "session",
-      "group": "session",
-      "percent": 4,
-      "severity": "normal",
-      "resets_at": "2026-09-22T07:10:00.734726+00:00",
-      "scope": null,
-      "is_active": false
-    },
-    {
-      "kind": "weekly_all",
-      "group": "weekly",
-      "percent": 3,
-      "severity": "normal",
-      "resets_at": "2026-09-24T21:00:00.734780+00:00",
-      "scope": null,
-      "is_active": false
-    },
-    {
-      "kind": "weekly_scoped",
-      "group": "weekly",
-      "percent": 6,
-      "severity": "normal",
-      "resets_at": "2026-09-24T21:00:00.735235+00:00",
-      "scope": {
-        "model": {
-          "id": null,
-          "display_name": "Fable"
-        },
-        "surface": null
-      },
-      "is_active": true
-    }
-  ],
-  "spend": {
-    "used": {
-      "amount_minor": 0,
-      "currency": "USD",
-      "exponent": 2
-    },
-    "limit": null,
-    "percent": 0,
-    "severity": "normal",
-    "enabled": false,
-    "disabled_reason": null,
-    "cap": null,
-    "balance": null,
-    "auto_reload": null,
-    "disclaimer": "Usage credits cover you when you hit your plan limits. [Learn more](https://support.claude.com/articles/12429409)",
-    "can_purchase_credits": true,
-    "can_toggle": true
-  },
-  "member_dashboard_available": false,
-  "seven_day_breakdown": {
-    "as_of": "2026-09-22T02:19:59.750303+00:00",
-    "window_started_at": "2026-09-17T21:00:00.734780+00:00",
-    "rows": [
-      {
-        "key": "claude_code",
-        "display_name": "Claude Code",
-        "percent": 100
-      },
-      {
-        "key": "chat",
-        "display_name": "Chats",
-        "percent": 0
-      },
-      {
-        "key": "cowork",
-        "display_name": "Cowork",
-        "percent": 0
-      },
-      {
-        "key": "other",
-        "display_name": "Other",
-        "percent": 0
-      }
-    ]
-  }
-}
-"""
 
 /// Fixture-based decoding tests against captured shapes of the unofficial claude.ai API.
 final class APIFixtureTests: XCTestCase {
@@ -572,7 +331,7 @@ final class APIFixtureTests: XCTestCase {
         // First live sighting of a non-"normal" severity and of an is_active == true entry
         // sitting on the highest-percent window; also carries the unmodeled top-level key
         // copper_kite that Codable must keep dropping silently (seven_day_breakdown is null here).
-        let r = try decode(UsageResponse.self, livePayload20260910)
+        let r = try decode(UsageResponse.self, livePayload("2026-09-10"))
         XCTAssertEqual(r.fiveHour?.utilization, 4)
         XCTAssertEqual(r.sevenDay?.utilization, 38)
         XCTAssertNil(r.sevenDaySonnet)
@@ -596,7 +355,7 @@ final class APIFixtureTests: XCTestCase {
         // appeared (harbor_lantern, wattle_ember, cedar_ember, amber_gauge) — the latter are
         // unmodeled, so Codable must keep dropping them silently. is_active is again true
         // only on the highest-percent limit (scoped 6 > session 4 > weekly 3).
-        let r = try decode(UsageResponse.self, livePayload20260921)
+        let r = try decode(UsageResponse.self, livePayload("2026-09-21"))
         XCTAssertEqual(r.fiveHour?.utilization, 4)
         XCTAssertEqual(r.sevenDay?.utilization, 3)
         XCTAssertNil(r.sevenDaySonnet)
@@ -618,7 +377,7 @@ final class APIFixtureTests: XCTestCase {
     }
 
     func testSevenDayBreakdownNilOnOlderPayloadsAndWhenWrongTyped() throws {
-        let old = try decode(UsageResponse.self, livePayload20260910)
+        let old = try decode(UsageResponse.self, livePayload("2026-09-10"))
         XCTAssertNil(old.sevenDayBreakdown)
         XCTAssertEqual(breakdownSignature(old), "")
         XCTAssertNil(try decode(UsageResponse.self, "{}").sevenDayBreakdown)
@@ -674,7 +433,7 @@ final class APIFixtureTests: XCTestCase {
     // MARK: - Tracked windows
 
     func testTrackedWindowsListsBuiltInsThenScopedModelsFromLivePayload() throws {
-        let r = try decode(UsageResponse.self, livePayload20260910)
+        let r = try decode(UsageResponse.self, livePayload("2026-09-10"))
         let tracked = r.trackedWindows
         XCTAssertEqual(tracked.map(\.key), ["five_hour", "seven_day", "scoped.Fable"])
         XCTAssertEqual(tracked.map(\.isModelScoped), [false, false, true])
