@@ -1,5 +1,6 @@
 import XCTest
 import SwiftUI
+import CryptoKit
 @testable import ClaudeTracker
 
 /// Tests for the pure tuning/maintenance helpers (API fixture decoding lives in APIFixtureTests.swift).
@@ -889,6 +890,39 @@ final class AtomicInstallTests: XCTestCase {
 
         let fallback = URL(fileURLWithPath: "/Applications/ClaudeTracker.app")
         XCTAssertEqual(installDestination(runningBundle: running, fallback: fallback), fallback)
+    }
+
+    // MARK: - Update signature
+
+    func testUpdateSignatureAcceptsTheSignedBytes() throws {
+        let key = Curve25519.Signing.PrivateKey()
+        let zip = Data("zip bytes".utf8)
+        let signature = try key.signature(for: zip)
+        XCTAssertTrue(verifyUpdateSignature(zip, signature: signature, publicKey: key.publicKey.rawRepresentation))
+    }
+
+    func testUpdateSignatureRejectsTamperedBytesAndOtherKeys() throws {
+        let key = Curve25519.Signing.PrivateKey()
+        let signature = try key.signature(for: Data("zip bytes".utf8))
+        XCTAssertFalse(verifyUpdateSignature(Data("zip bytez".utf8), signature: signature,
+                                             publicKey: key.publicKey.rawRepresentation))
+        XCTAssertFalse(verifyUpdateSignature(Data("zip bytes".utf8), signature: signature,
+                                             publicKey: Curve25519.Signing.PrivateKey().publicKey.rawRepresentation))
+    }
+
+    func testUpdateSignatureRejectsMalformedInput() {
+        XCTAssertFalse(verifyUpdateSignature(Data("zip".utf8), signature: Data(), publicKey: Data(count: 32)))
+        XCTAssertFalse(verifyUpdateSignature(Data("zip".utf8), signature: Data(count: 64), publicKey: Data(count: 3)))
+    }
+
+    /// The embedded public key must be the Keychain key's: `Fixtures/signing-check.txt.sig`
+    /// was made with `scripts/update-signing.swift sign`. A mismatch would ship a build that
+    /// refuses every future update.
+    func testEmbeddedPublicKeyMatchesTheReleaseSigningKey() throws {
+        let bundle = Bundle(for: AtomicInstallTests.self)
+        let text = try Data(contentsOf: XCTUnwrap(bundle.url(forResource: "signing-check", withExtension: "txt")))
+        let signature = try Data(contentsOf: XCTUnwrap(bundle.url(forResource: "signing-check.txt", withExtension: "sig")))
+        XCTAssertTrue(verifyUpdateSignature(text, signature: signature, publicKey: updateSigningPublicKey))
     }
 
     // MARK: - Auto-install retry cap

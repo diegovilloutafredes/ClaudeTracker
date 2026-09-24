@@ -1152,6 +1152,16 @@
         }
       }
     },
+    "Update signature is invalid": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La firma de la actualización no es válida"
+          }
+        }
+      }
+    },
     "Usage": {
       "comment": "Usage tab label",
       "localizations": {

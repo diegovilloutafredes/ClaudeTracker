@@ -750,7 +750,8 @@ final class APIFixtureTests: XCTestCase {
            "published_at": "2026-06-01T00:00:00Z",
            "assets": [
              {"name": "ClaudeTracker.dmg", "browser_download_url": "https://example.com/ClaudeTracker.dmg"},
-             {"name": "ClaudeTracker.zip", "browser_download_url": "https://example.com/ClaudeTracker.zip"}
+             {"name": "ClaudeTracker.zip", "browser_download_url": "https://example.com/ClaudeTracker.zip"},
+             {"name": "ClaudeTracker.zip.sig", "browser_download_url": "https://example.com/ClaudeTracker.zip.sig"}
            ]},
           {"tag_name": "v1.0.0",
            "html_url": "https://github.com/x/y/releases/tag/v1.0.0",
@@ -761,6 +762,7 @@ final class APIFixtureTests: XCTestCase {
         let (update, dates) = parseGitHubReleases(Data(json.utf8), currentVersion: "1.20.0")
         XCTAssertEqual(update?.version, "9.9.9")
         XCTAssertEqual(update?.downloadURL?.absoluteString, "https://example.com/ClaudeTracker.zip")
+        XCTAssertEqual(update?.signatureURL?.absoluteString, "https://example.com/ClaudeTracker.zip.sig")
         XCTAssertEqual(update?.releaseURL.absoluteString, "https://github.com/x/y/releases/tag/v9.9.9")
         XCTAssertEqual(dates.count, 2)
     }
@@ -810,5 +812,19 @@ final class APIFixtureTests: XCTestCase {
         let (update, _) = parseGitHubReleases(Data(json.utf8), currentVersion: "1.0.0")
         XCTAssertEqual(update?.version, "9.0.0")
         XCTAssertNil(update?.downloadURL)
+    }
+
+    /// An unsigned zip can't be verified, so it is offered only as a manual download (the
+    /// release page), never installed in-app.
+    func testParseReleasesOffersAnUnsignedZipOnlyAsAManualDownload() {
+        let json = """
+        [{"tag_name": "v9.0.0", "html_url": "https://github.com/x/y/releases/tag/v9.0.0",
+          "published_at": "2026-05-01T00:00:00Z",
+          "assets": [{"name": "ClaudeTracker.zip", "browser_download_url": "https://example.com/ClaudeTracker.zip"}]}]
+        """
+        let (update, _) = parseGitHubReleases(Data(json.utf8), currentVersion: "1.0.0")
+        XCTAssertEqual(update?.version, "9.0.0")
+        XCTAssertNil(update?.downloadURL)
+        XCTAssertNil(update?.signatureURL)
     }
 }

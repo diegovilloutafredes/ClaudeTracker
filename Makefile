@@ -21,7 +21,7 @@ APPLE_TEAM_ID  ?=
 # CI override: make build SIGNING_FLAGS="CODE_SIGNING_ALLOWED=NO"
 SIGNING_FLAGS ?= CODE_SIGN_IDENTITY="-"
 
-.PHONY: release build test lint run clean tag dmg zip sign notarize staple generate
+.PHONY: release build test lint run clean tag publish dmg zip sign notarize staple generate
 
 # ── Full release pipeline ─────────────────────────────────────────────────────
 
@@ -151,12 +151,20 @@ run: build
 tag: lint test
 	@if [ -z "$(VERSION)" ]; then echo "Usage: make tag VERSION=1.0.0"; exit 1; fi
 	@if [ -n "$$(git status --porcelain)" ]; then echo "Working directory is not clean — commit changes first"; exit 1; fi
+	@scripts/publish-release.sh --check-key
 	@sed -i '' 's/MARKETING_VERSION: .*/MARKETING_VERSION: "$(VERSION)"/' project.yml
 	git add project.yml
 	git commit -m "Bump version to $(VERSION)"
 	git tag -a "v$(VERSION)" -m "v$(VERSION)"
 	git push origin main
 	git push origin "v$(VERSION)"
+	@scripts/publish-release.sh $(VERSION)
+
+# CI creates each release as a draft (the app skips drafts); this signs its zip with the
+# Keychain key, uploads the .sig, and publishes. `make tag` runs it; rerun after a failure.
+publish:
+	@if [ -z "$(VERSION)" ]; then echo "Usage: make publish VERSION=1.0.0"; exit 1; fi
+	@scripts/publish-release.sh $(VERSION)
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────
 

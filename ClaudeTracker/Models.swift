@@ -837,6 +837,9 @@ func orphanedDataStoreIDs(existing: [UUID], roster: [Account]) -> [UUID] {
 struct UpdateInfo: Sendable {
     let version: String
     let releaseURL: URL
-    /// Direct ZIP download URL from the GitHub release assets, if present.
+    /// Direct ZIP download URL from the GitHub release assets. Nil unless the release also
+    /// carries the zip's signature: an unsigned zip is offered only as a manual download.
     let downloadURL: URL?
+    /// The zip's detached Ed25519 signature (`ClaudeTracker.zip.sig`), set with `downloadURL`.
+    var signatureURL: URL? = nil
 }

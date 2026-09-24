@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CryptoKit
 
 /// Parses the GitHub `releases?per_page=N` JSON payload.
 ///
@@ -31,10 +32,33 @@ func parseGitHubReleases(_ data: Data, currentVersion: String) -> (update: Updat
     let remote = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
     guard isNewerVersion(remote, than: currentVersion) else { return (nil, dates) }
 
-    let assets = latest["assets"] as? [[String: Any]]
-    let zipAsset = assets?.first { ($0["name"] as? String)?.hasSuffix(".zip") == true }
-    let downloadURL = (zipAsset?["browser_download_url"] as? String).flatMap(URL.init)
-    return (UpdateInfo(version: remote, releaseURL: releaseUrl, downloadURL: downloadURL), dates)
+    let assets = latest["assets"] as? [[String: Any]] ?? []
+    func assetURL(_ matches: (String) -> Bool) -> (name: String, url: URL)? {
+        for asset in assets {
+            if let name = asset["name"] as? String, matches(name),
+               let url = (asset["browser_download_url"] as? String).flatMap(URL.init) { return (name, url) }
+        }
+        return nil
+    }
+    // In-app install needs the zip's signature; without one the release page is the only path.
+    guard let zip = assetURL({ $0.hasSuffix(".zip") }),
+          let signature = assetURL({ $0 == zip.name + ".sig" }) else {
+        return (UpdateInfo(version: remote, releaseURL: releaseUrl, downloadURL: nil), dates)
+    }
+    return (UpdateInfo(version: remote, releaseURL: releaseUrl, downloadURL: zip.url, signatureURL: signature.url), dates)
+}
+
+/// Public half of the release-signing key, whose private half lives only in the maintainer's
+/// Keychain (`scripts/update-signing.swift`). Compiled in rather than read from Info.plist:
+/// a tampered bundle is exactly what it defends against. Rotating it means a release whose
+/// users then install by hand once.
+let updateSigningPublicKey = Data(base64Encoded: "rnHlUrHGhtrUIQAgZxvIHG5vO1kvTZNxRDR+KTFmcIg=") ?? Data()
+
+/// True when `signature` is a valid Ed25519 signature of `data` by the raw 32-byte
+/// `publicKey`. Malformed keys or signatures are simply invalid.
+func verifyUpdateSignature(_ data: Data, signature: Data, publicKey: Data) -> Bool {
+    guard let key = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKey) else { return false }
+    return key.isValidSignature(signature, for: data)
 }
 
 /// Atomically replaces the item at `dest` with a copy of `source`.
@@ -276,7 +300,8 @@ final class UpdateService {
     }
 
     func downloadAndInstall() {
-        guard let update = availableUpdate, let downloadURL = update.downloadURL else { return }
+        guard let update = availableUpdate, let downloadURL = update.downloadURL,
+              let signatureURL = update.signatureURL else { return }
         guard case .idle = updateDownloadState else { return }
         updateDownloadState = .downloading
 
@@ -292,6 +317,14 @@ final class UpdateService {
                 let (tempURL, _) = try await URLSession.shared.download(from: downloadURL)
                 let zipURL = tmpBase.appendingPathComponent("update.zip")
                 try FileManager.default.moveItem(at: tempURL, to: zipURL)
+
+                // Nothing is unzipped until the zip verifies against the embedded key: HTTPS
+                // only proves the bytes came from GitHub, not from the maintainer.
+                let (signature, _) = try await URLSession.shared.data(from: signatureURL)
+                guard verifyUpdateSignature(try Data(contentsOf: zipURL), signature: signature,
+                                            publicKey: updateSigningPublicKey) else {
+                    throw UpdateError.signatureInvalid
+                }
 
                 // Extract on background thread (waitUntilExit blocks)
                 let extractDir = tmpBase.appendingPathComponent("extracted")
@@ -415,9 +448,10 @@ final class UpdateService {
     }
 
     private enum UpdateError: LocalizedError {
-        case extractionFailed, appNotFound, versionMismatch
+        case extractionFailed, appNotFound, versionMismatch, signatureInvalid
         var errorDescription: String? {
             switch self {
+            case .signatureInvalid:   return String(localized: "Update signature is invalid")
             case .extractionFailed:   return String(localized: "Failed to extract update")
             case .appNotFound:        return String(localized: "Update package is invalid")
             case .versionMismatch:    return String(localized: "Update package version mismatch")

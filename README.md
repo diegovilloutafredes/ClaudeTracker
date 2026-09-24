@@ -33,7 +33,7 @@ A macOS menu bar app that shows your [Claude AI](https://claude.ai) usage limits
 - Configurable notifications when a window resets: toast near the menu bar, sound, and system banner
   - Toast duration slider (1-30 s) or permanent mode until dismissed
 - **Launch at login** — registers itself as a login item on first run so it's always in the menu bar after a reboot (opt out in Settings; removing it in System Settings → Login Items is respected too)
-- **Auto-update** — periodically checks GitHub Releases on an adaptive schedule (based on historical release cadence), checks again on wake from sleep, and auto-installs new versions after a short countdown (**on by default** — opt out in Settings); shows a banner in the popover and a toast when a new version is found
+- **Auto-update** — periodically checks GitHub Releases on an adaptive schedule (based on historical release cadence), checks again on wake from sleep, and auto-installs new versions after a short countdown (**on by default** — opt out in Settings), verifying each update's Ed25519 signature before installing; shows a banner in the popover and a toast when a new version is found
 - **Popup scale** — slider (75–150%) to resize the popover proportionally
 - **Diagnostic logs** — rolling file log at `~/Library/Logs/ClaudeTracker/`; open directly from Settings
 - Adaptive polling — the refresh rate speeds up automatically as usage or pace climbs; nothing to configure

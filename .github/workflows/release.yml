@@ -111,10 +111,14 @@ jobs:
       - name: Create DMG and ZIP
         run: make dmg zip
 
-      # ── Publish ─────────────────────────────────────────────────────────────
-      - name: Create GitHub Release
+      # ── Publish (as a draft) ────────────────────────────────────────────────
+      # The update-signing key never leaves the maintainer's Keychain, so CI can't sign.
+      # The app skips drafts; `make tag` (scripts/publish-release.sh) signs the zip,
+      # uploads ClaudeTracker.zip.sig, and publishes.
+      - name: Create draft GitHub Release
         run: |
           gh release create "${{ github.ref_name }}" \
+            --draft \
             --title "${{ github.ref_name }}" \
             --generate-notes \
             release/ClaudeTracker.dmg \
