@@ -480,16 +480,31 @@ final class PureLogicTests: XCTestCase {
     // MARK: - FetchFailure
 
     /// A Cloudflare-challenged fetch must never read as an auth failure: two of them in a
-    /// row would mark a valid session expired. The tokens arrive wrapped in WebKit's error
-    /// text, so classification is by substring.
+    /// row would mark a valid session expired. The tokens arrive as the thrown error's
+    /// message (see `jsExceptionMessage`), so classification is by substring.
     func testFetchFailureClassifiesTheThrownToken() {
-        XCTAssertEqual(FetchFailure(message: "A JavaScript exception occurred: Error: CF_CHALLENGE"), .challenge)
-        XCTAssertEqual(FetchFailure(message: "A JavaScript exception occurred: Error: HTTP_401"), .unauthorized)
+        XCTAssertEqual(FetchFailure(message: "Error: CF_CHALLENGE"), .challenge)
+        XCTAssertEqual(FetchFailure(message: "Error: HTTP_401"), .unauthorized)
         XCTAssertEqual(FetchFailure(message: "Error: HTTP_403"), .unauthorized)
         XCTAssertEqual(FetchFailure(message: "Error: HTTP_429"), .rateLimited)
         XCTAssertEqual(FetchFailure(message: "Error: HTTP_404"), .notFound)
         XCTAssertEqual(FetchFailure(message: "Error: HTTP_500"), .http)
         XCTAssertEqual(FetchFailure(message: "TypeError: Load failed"), .network)
+    }
+
+    /// WebKit's error text is only "A JavaScript exception occurred"; the thrown message
+    /// travels in userInfo. Shape captured from `callAsyncJavaScript` on macOS 27.
+    func testJSExceptionMessageReadsTheThrownErrorFromUserInfo() {
+        let error = NSError(domain: "WKErrorDomain", code: 4, userInfo: [
+            NSLocalizedDescriptionKey: "A JavaScript exception occurred",
+            "WKJavaScriptExceptionMessage": "Error: HTTP_401",
+        ])
+        XCTAssertEqual(FetchFailure(message: jsExceptionMessage(error)), .unauthorized)
+    }
+
+    func testJSExceptionMessageFallsBackToTheDescription() {
+        let error = NSError(domain: NSURLErrorDomain, code: -1009, userInfo: [NSLocalizedDescriptionKey: "offline"])
+        XCTAssertEqual(jsExceptionMessage(error), "offline")
     }
 
     // MARK: - resetTimeText

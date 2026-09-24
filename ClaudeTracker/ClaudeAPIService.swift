@@ -9,8 +9,8 @@ extension HTTPCookie {
 }
 
 /// What a failed in-page `fetch` means, read from the token the fetch script throws.
-/// `callAsyncJavaScript` surfaces a JS `throw` as an `NSError` whose description contains
-/// the thrown string plus any wrapper text WebKit adds — so tokens match by substring.
+/// The message comes from `jsExceptionMessage` — the thrown error's `name: message`
+/// (e.g. `"Error: HTTP_401"`) — so tokens match by substring.
 enum FetchFailure: Equatable {
     /// Cloudflare answered with a challenge page (`cf-mitigated: challenge`). Says nothing
     /// about the session, so it must never count toward expiry; only a real reload passes it.
@@ -39,6 +39,14 @@ enum FetchFailure: Equatable {
             self = .network
         }
     }
+}
+
+/// The message of the JavaScript error a `callAsyncJavaScript` script threw, e.g.
+/// `"Error: HTTP_401"`. WebKit's `localizedDescription` is only "A JavaScript exception
+/// occurred"; the thrown message travels under the `WKJavaScriptExceptionMessage` userInfo
+/// key, which WebKit doesn't export as a constant. Other errors fall back to their description.
+func jsExceptionMessage(_ error: Error) -> String {
+    (error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String ?? error.localizedDescription
 }
 
 /// Fetches usage and account data from the unofficial claude.ai web API.
@@ -330,7 +338,9 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// Translates JavaScript `Error` messages from `callAsyncJavaScript` into typed `APIError`
     /// values (classification in `FetchFailure`), applying each failure's side effects.
     private func mapJSError(_ error: Error) -> APIError {
-        let msg = error.localizedDescription
+        // Reading `localizedDescription` here classified every failure as `.network`: 401s
+        // never counted toward expiry, and challenges and 404s skipped their recovery.
+        let msg = jsExceptionMessage(error)
         switch FetchFailure(message: msg) {
         case .challenge:
             // Not a session problem — mapped to a network error so it never counts toward
