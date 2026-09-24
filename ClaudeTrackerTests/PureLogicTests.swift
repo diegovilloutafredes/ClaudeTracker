@@ -644,4 +644,19 @@ final class AtomicInstallTests: XCTestCase {
     func testBundleShortVersionNilWhenPlistMissing() {
         XCTAssertNil(bundleShortVersion(at: tmpDir.appendingPathComponent("Nope.app")))
     }
+
+    // MARK: - Auto-install retry cap
+
+    func testInstallFailureCountAccumulatesForTheSameVersion() {
+        XCTAssertEqual(installFailureCount(version: "1.30.0", failedVersion: "1.30.0", previousCount: 2), 3)
+    }
+
+    func testInstallFailureCountRestartsForANewVersion() {
+        XCTAssertEqual(installFailureCount(version: "1.31.0", failedVersion: "1.30.0", previousCount: 3), 1)
+    }
+
+    func testAutoInstallStopsRetryingAtTheCap() {
+        XCTAssertTrue(shouldRetryAutoInstall(failures: maxAutoInstallAttempts - 1))
+        XCTAssertFalse(shouldRetryAutoInstall(failures: maxAutoInstallAttempts))
+    }
 }

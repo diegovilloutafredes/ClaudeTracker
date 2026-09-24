@@ -194,6 +194,9 @@ enum PrefKey {
     static let launchAtLogin = "launchAtLogin"
     static let lastNotifiedUpdateVersion = "lastNotifiedUpdateVersion"
     static let updateCheckInterval = "updateCheckInterval"
+    /// The release whose install last failed, and how many times in a row (auto-install retry cap).
+    static let failedInstallVersion = "failedInstallVersion"
+    static let failedInstallCount = "failedInstallCount"
     /// Pre-multi-account chart history blob; migrated to `usageHistory.<accountID>`.
     static let legacyUsageHistory = "usageHistory"
 }

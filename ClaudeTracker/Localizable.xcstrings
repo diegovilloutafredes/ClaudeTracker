@@ -352,6 +352,16 @@
         }
       }
     },
+    "Couldn't install v%@ automatically — open Settings to install it": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo instalar v%@ automáticamente — abre Ajustes para instalarla"
+          }
+        }
+      }
+    },
     "Dismiss": {
       "localizations": {
         "es": {
@@ -1027,6 +1037,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Herramienta no oficial — no está afiliada ni respaldada por Anthropic. Puede dejar de funcionar si Anthropic cambia su API web."
+          }
+        }
+      }
+    },
+    "Update failed": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error al actualizar"
           }
         }
       }

@@ -95,6 +95,22 @@ func bundleShortVersion(at appURL: URL) -> String? {
     return plist["CFBundleShortVersionString"] as? String
 }
 
+/// Failed installs of one release that auto-install tolerates before it stops retrying.
+let maxAutoInstallAttempts = 3
+
+/// The failure count after one more failed install of `version`, given the persisted
+/// record: counting restarts when a different release fails.
+func installFailureCount(version: String, failedVersion: String, previousCount: Int) -> Int {
+    (version == failedVersion ? previousCount : 0) + 1
+}
+
+/// Whether the next update check should retry the install automatically. Past the cap a
+/// failure is treated as permanent (e.g. an unwritable destination): retrying would show a
+/// toast and redownload on every check and wake, forever.
+func shouldRetryAutoInstall(failures: Int) -> Bool {
+    failures < maxAutoInstallAttempts
+}
+
 /// Progress state for the in-app update download/install flow.
 enum UpdateDownloadState {
     case idle
@@ -126,6 +142,8 @@ final class UpdateService {
 
     @ObservationIgnored private var updateCheckTask: Task<Void, Never>?
     @ObservationIgnored private var lastNotifiedUpdateVersion: String = ""
+    @ObservationIgnored private var failedInstallVersion: String = ""
+    @ObservationIgnored private var failedInstallCount = 0
     /// Adaptive check interval (seconds), computed from release cadence. Clamped 4h–24h.
     private var nextCheckInterval: TimeInterval = 12 * 3600
 
@@ -143,6 +161,8 @@ final class UpdateService {
     /// bare `UsageViewModel()`/`UpdateService()` in a test does not hit the network.
     func start() {
         lastNotifiedUpdateVersion = UserDefaults.standard.string(forKey: PrefKey.lastNotifiedUpdateVersion) ?? ""
+        failedInstallVersion = UserDefaults.standard.string(forKey: PrefKey.failedInstallVersion) ?? ""
+        failedInstallCount = UserDefaults.standard.integer(forKey: PrefKey.failedInstallCount)
         let savedCheckInterval = UserDefaults.standard.double(forKey: PrefKey.updateCheckInterval)
         if savedCheckInterval >= 4 * 3600 { nextCheckInterval = savedCheckInterval }
         // Set autoUpdate last so its didSet fires with nextCheckInterval already correct.
@@ -351,14 +371,37 @@ final class UpdateService {
                 }
                 NSApp.terminate(nil)
             } catch {
-                AppLogger.shared.error("auto-update failed: \(error)")
                 updateDownloadState = .failed(error.localizedDescription)
-                // Un-mark the version as notified so the next periodic/wake check retries
-                // the install — otherwise one transient failure permanently degrades this
-                // release to "find the Install button in Settings".
-                lastNotifiedUpdateVersion = ""
-                UserDefaults.standard.removeObject(forKey: PrefKey.lastNotifiedUpdateVersion)
+                recordInstallFailure(version: update.version, error: error)
             }
+        }
+    }
+
+    /// Un-marks the version as notified so the next periodic/wake check retries the install
+    /// — one transient failure must not degrade the release to "find the Install button in
+    /// Settings". After `maxAutoInstallAttempts` failures of the same release the version stays
+    /// marked, so retries stop, and one toast points at the manual path instead.
+    private func recordInstallFailure(version: String, error: Error) {
+        let failures = installFailureCount(version: version, failedVersion: failedInstallVersion,
+                                           previousCount: failedInstallCount)
+        failedInstallVersion = version
+        failedInstallCount = failures
+        UserDefaults.standard.set(version, forKey: PrefKey.failedInstallVersion)
+        UserDefaults.standard.set(failures, forKey: PrefKey.failedInstallCount)
+        AppLogger.shared.error("auto-update failed (v\(version), #\(failures)): \(error)")
+
+        if shouldRetryAutoInstall(failures: failures) {
+            lastNotifiedUpdateVersion = ""
+            UserDefaults.standard.removeObject(forKey: PrefKey.lastNotifiedUpdateVersion)
+        } else if failures == maxAutoInstallAttempts {
+            ToastWindowController.shared.show(
+                title: String(localized: "Update failed"),
+                message: String(format: String(localized: "Couldn't install v%@ automatically — open Settings to install it"), version),
+                icon: "exclamationmark.triangle.fill",
+                iconColor: .orange,
+                duration: 12,
+                permanent: false
+            )
         }
     }
 
