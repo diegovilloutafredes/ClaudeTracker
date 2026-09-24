@@ -152,21 +152,33 @@ final class LoginWindowController {
         popup.makeKeyAndOrderFront(nil)
         self.popupWindow = popup
 
+        // Synchronous, like the login window's cleanup: a deferred Task could run after a
+        // nested popup replaced this one and close the new popup mid-sign-in.
         popupWindowObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: popup,
             queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.closePopup() }
+        ) { [weak self, weak popup] _ in
+            MainActor.assumeIsolated {
+                guard let self, let popup, self.popupWindow === popup else { return }
+                // Already closing: forget it rather than closing it again.
+                self.forgetPopup()
+            }
         }
     }
 
     private func closePopup() {
+        let popup = popupWindow
+        forgetPopup()
+        popup?.close()
+    }
+
+    /// Unregisters the popup's close observer and drops the reference.
+    private func forgetPopup() {
         if let observer = popupWindowObserver {
             NotificationCenter.default.removeObserver(observer)
             popupWindowObserver = nil
         }
-        popupWindow?.close()
         popupWindow = nil
     }
 }
