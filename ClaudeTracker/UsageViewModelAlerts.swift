@@ -25,10 +25,8 @@ extension UsageViewModel {
         // surface toasts/sounds for resets the user can't act on right now.
         guard old != nil, accountID == activeAccountID, resetSoundEnabled || notifyToast else { return }
 
-        // A window missing from this response is titled from the previous one.
-        let windows = Dictionary(((old?.trackedWindows ?? []) + new.trackedWindows).map { ($0.key, $0) },
-                                 uniquingKeysWith: { _, latest in latest })
-        let resets = resetKeys.compactMap { windows[$0] }.filter(isWatched).map(\.title)
+        let windows = Dictionary(new.trackedWindows.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        let resets = resetKeys.map { windows[$0] ?? TrackedWindow(vanishedKey: $0) }.filter(isWatched).map(\.title)
         if !resets.isEmpty {
             dispatchNotifications(windows: resets)
         }

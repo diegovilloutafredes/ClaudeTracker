@@ -503,12 +503,11 @@ struct UsageResponse: Codable, Sendable {
             TrackedWindow(key: $0.rawValue, title: $0.label, window: $1, isModelScoped: false)
         }
         if let sonnet = sevenDaySonnet {
-            result.append(TrackedWindow(key: "seven_day_sonnet", title: String(localized: "7-Day Sonnet"),
+            result.append(TrackedWindow(key: "seven_day_sonnet", title: TrackedWindow.title(forKey: "seven_day_sonnet"),
                                         window: sonnet, isModelScoped: true))
         }
         for scoped in scopedModelWindows {
-            result.append(TrackedWindow(key: scoped.paceKey,
-                                        title: String(format: String(localized: "7-Day %@"), scoped.label),
+            result.append(TrackedWindow(key: scoped.paceKey, title: TrackedWindow.title(forKey: scoped.paceKey),
                                         window: scoped.window, isModelScoped: true))
         }
         return result
@@ -766,6 +765,23 @@ struct TrackedWindow: Identifiable, Sendable {
     var id: String { key }
     /// Every window but the 5-hour one spans a week.
     var isSevenDay: Bool { key != MenuBarWindow.fiveHour.rawValue }
+
+    /// The localized row title for a window key.
+    static func title(forKey key: String) -> String {
+        if let builtIn = MenuBarWindow(rawValue: key) { return builtIn.label }
+        if key == "seven_day_sonnet" { return String(localized: "7-Day Sonnet") }
+        let model = key.hasPrefix("scoped.") ? String(key.dropFirst("scoped.".count)) : key
+        return String(format: String(localized: "7-Day %@"), model)
+    }
+}
+
+extension TrackedWindow {
+    /// A window that left the response, rebuilt from its key so its reset can still be
+    /// titled and gated like the live one — the previous response may lack it too.
+    init(vanishedKey key: String) {
+        self.init(key: key, title: Self.title(forKey: key), window: UsageWindow(utilization: 0, resetsAt: nil),
+                  isModelScoped: MenuBarWindow(rawValue: key) == nil)
+    }
 }
 
 /// A single rate-limit window returned by the usage API.

@@ -401,6 +401,18 @@ final class PureLogicTests: XCTestCase {
         XCTAssertNotNil(result.stored["seven_day"])
     }
 
+    func testVanishedWindowIdentityMatchesTheLiveWindow() {
+        // A window can leave the response a poll or more before its reset passes, so its
+        // reset toast can't rely on the previous response for a title.
+        let fiveHour = TrackedWindow(vanishedKey: "five_hour")
+        XCTAssertEqual(fiveHour.title, MenuBarWindow.fiveHour.label)
+        XCTAssertFalse(fiveHour.isModelScoped)
+        let fable = TrackedWindow(vanishedKey: "scoped.Fable")
+        XCTAssertEqual(fable.title, String(format: String(localized: "7-Day %@"), "Fable"))
+        XCTAssertTrue(fable.isModelScoped)
+        XCTAssertEqual(TrackedWindow(vanishedKey: "seven_day_sonnet").title, String(localized: "7-Day Sonnet"))
+    }
+
     func testDetectResetsBaselinesWindowsWithoutAStoredReset() {
         let now = Date()
         let result = detectResets(stored: [:], windows: [tracked("five_hour", 0, now.addingTimeInterval(3600)),
