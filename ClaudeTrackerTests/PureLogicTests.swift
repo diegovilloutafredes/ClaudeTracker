@@ -326,6 +326,30 @@ final class PureLogicTests: XCTestCase {
         XCTAssertEqual(PaceRateUnit.perSecond.format(36), "0.0100%/s")
     }
 
+    // MARK: - Pace outlook wording
+
+    /// resets_at lands a fraction of a second either side of its 10-minute mark from poll to
+    /// poll; the outlook sentence used to switch phrasing between polls because of it.
+    func testOutlookMessageIndexIsStableAcrossResetJitter() {
+        let mark = Date(timeIntervalSince1970: 1_790_197_200) // 2026-09-24 21:00 UTC, a 10-minute mark
+        XCTAssertEqual(outlookMessageIndex(reset: mark.addingTimeInterval(-0.454), count: 5),
+                       outlookMessageIndex(reset: mark.addingTimeInterval(0.108), count: 5))
+        // …while still varying between windows (seconds-based picks were always index 0).
+        XCTAssertNotEqual(outlookMessageIndex(reset: mark, count: 5),
+                          outlookMessageIndex(reset: mark.addingTimeInterval(600), count: 5))
+    }
+
+    /// The "over" line must never claim more lead than there is: a 1.53 h lead rounded to
+    /// "~2h" sat directly under "Resets in 1 hr, 34 min".
+    func testEarlyFillLeadNeverOverstatesTheLead() {
+        let lead = earlyFillLead(hours: 1.53)
+        XCTAssertEqual(lead.hours, 1)
+        XCTAssertEqual(lead.minutes, 31)
+        XCTAssertEqual(earlyFillLead(hours: 2).hours, 2)
+        XCTAssertEqual(earlyFillLead(hours: 2).minutes, 0)
+        XCTAssertEqual(earlyFillLead(hours: 0.001).minutes, 1) // never "~0m"
+    }
+
     // MARK: - Orphaned data stores
 
     /// The launch sweep deletes WebKit stores whose account is gone (a removal that raced a

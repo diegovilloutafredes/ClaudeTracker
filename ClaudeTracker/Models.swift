@@ -321,6 +321,25 @@ enum PaceBand: Equatable, Sendable {
     }
 }
 
+/// Index into a rotating message list that stays fixed for a whole window cycle.
+///
+/// Resets land on 10-minute marks, but `resets_at` comes in a fraction of a second either
+/// side of the mark from poll to poll. Counting whole 10-minute slots (rounded) keeps the pick
+/// stable under that jitter while still varying between windows; counting seconds picked
+/// message 0 for every on-the-mark reset and switched phrasing whenever one came in early.
+func outlookMessageIndex(reset: Date, count: Int) -> Int {
+    guard count > 0 else { return 0 }
+    return abs(Int((reset.timeIntervalSince1970 / 600).rounded())) % count
+}
+
+/// How far ahead of its reset a window projected to fill early runs out, for the "over"
+/// outlook line. Truncated to whole minutes, never rounded up: a rounded-up "~2h" once sat
+/// under "Resets in 1 hr, 34 min". At least one minute, so the line never reads "~0m".
+func earlyFillLead(hours early: Double) -> (hours: Int, minutes: Int) {
+    let totalMinutes = max(1, Int(early * 60))
+    return (totalMinutes / 60, totalMinutes % 60)
+}
+
 /// Response payload from the `/api/organizations/{id}/usage` endpoint.
 struct UsageResponse: Codable, Sendable {
     let fiveHour: UsageWindow?

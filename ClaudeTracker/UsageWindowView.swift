@@ -72,7 +72,10 @@ struct UsageWindowView: View {
     }
 
     private func paceOutlook(proj: Double, hoursToReset: Double) -> (String, LocalizedStringKey, Color) {
-        let seed = abs(Int(window.resetsAtDate?.timeIntervalSince1970 ?? 0))
+        // Same phrasing for the whole window cycle, despite resets_at jitter.
+        func pick(_ messages: [LocalizedStringKey]) -> LocalizedStringKey {
+            messages[window.resetsAtDate.map { outlookMessageIndex(reset: $0, count: messages.count) } ?? 0]
+        }
         let color = paceUrgencyColor(proj: proj, hoursToReset: hoursToReset)
 
         switch PaceBand(projectedHours: proj, hoursToReset: hoursToReset) {
@@ -84,7 +87,7 @@ struct UsageWindowView: View {
                 "Safe — usage resets before full",
                 "No rush — plenty of time left",
             ]
-            return ("checkmark.circle", messages[seed % messages.count], color)
+            return ("checkmark.circle", pick(messages), color)
         case .close:
             let messages: [LocalizedStringKey] = [
                 "Getting close — may hit limit",
@@ -93,20 +96,26 @@ struct UsageWindowView: View {
                 "Almost at the edge — ease up",
                 "Trending toward the limit",
             ]
-            return ("exclamationmark.circle", messages[seed % messages.count], color)
+            return ("exclamationmark.circle", pick(messages), color)
         case .over:
-            let early = hoursToReset - proj
+            // Never overstates the lead (see earlyFillLead); minutes only while they matter.
+            let lead = earlyFillLead(hours: hoursToReset - proj)
             // Localized: the unit abbreviation differs per language (es: "min", not "m").
-            let timeStr = early < 1
-                ? String(format: String(localized: "~%dm"), max(1, Int(early * 60)))
-                : String(format: String(localized: "~%dh"), Int(early.rounded()))
+            let timeStr: String
+            if lead.hours == 0 {
+                timeStr = String(format: String(localized: "~%dm"), lead.minutes)
+            } else if lead.hours >= 3 || lead.minutes == 0 {
+                timeStr = String(format: String(localized: "~%dh"), lead.hours)
+            } else {
+                timeStr = String(format: String(localized: "~%dh %dm"), lead.hours, lead.minutes)
+            }
             let messages: [LocalizedStringKey] = [
                 "Will hit limit \(timeStr) before reset",
                 "Runs out \(timeStr) before reset",
                 "On pace to fill \(timeStr) early",
                 "Full \(timeStr) before window resets",
             ]
-            return ("exclamationmark.triangle.fill", messages[seed % messages.count], color)
+            return ("exclamationmark.triangle.fill", pick(messages), color)
         }
     }
 
