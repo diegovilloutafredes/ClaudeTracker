@@ -678,6 +678,13 @@ struct Account: Codable, Identifiable, Hashable, Sendable {
         self.addedAt = try c.decode(Date.self, forKey: .addedAt)
         self.pending = try c.decodeIfPresent(Bool.self, forKey: .pending)
     }
+
+    /// Team or Enterprise, whose org name Settings shows. Reads the canonical English label
+    /// `AccountInfo.subscriptionLabel` derives and the roster persists; display code
+    /// localizes it (`SubscriptionBadge`), so views must not compare the label themselves.
+    var isOrganizationPlan: Bool {
+        subscriptionLabel == "Team" || subscriptionLabel == "Enterprise"
+    }
 }
 
 /// All per-account runtime state. The view model keeps a `[UUID: AccountState]` indexed by

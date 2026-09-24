@@ -164,8 +164,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                if let org = account.orgName,
-                   account.subscriptionLabel == "Team" || account.subscriptionLabel == "Enterprise" {
+                if let org = account.orgName, account.isOrganizationPlan {
                     Label(org, systemImage: "building.2")
                         .font(.caption)
                         .foregroundStyle(.secondary)

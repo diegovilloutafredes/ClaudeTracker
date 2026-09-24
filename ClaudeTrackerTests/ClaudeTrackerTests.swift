@@ -87,6 +87,15 @@ final class ClaudeTrackerTests: XCTestCase {
         XCTAssertNil(info.subscriptionLabel)
     }
 
+    /// Settings shows the org name only for organization plans. The check reads the
+    /// canonical persisted label, which display code localizes and must not compare.
+    func testOrganizationPlanComesFromTheCanonicalLabel() {
+        XCTAssertTrue(Account(label: "Work", subscriptionLabel: "Team").isOrganizationPlan)
+        XCTAssertTrue(Account(label: "Work", subscriptionLabel: "Enterprise").isOrganizationPlan)
+        XCTAssertFalse(Account(label: "Home", subscriptionLabel: "Max 5×").isOrganizationPlan)
+        XCTAssertFalse(Account(label: "New").isOrganizationPlan)
+    }
+
     // MARK: - Version comparison
 
     func testVersionIsNewer() {

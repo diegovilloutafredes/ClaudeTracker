@@ -5,11 +5,13 @@ import SwiftUI
 /// Purple capsule showing the subscription tier (e.g. "Max 5×"). Used in the popover
 /// header, the multi-account picker label, and the Settings account rows.
 struct SubscriptionBadge: View {
+    /// The canonical English label (`AccountInfo.subscriptionLabel`), localized here for
+    /// display only — the roster persists it and code compares it.
     let label: String
     var scale: CGFloat = 1
 
     var body: some View {
-        Text(label)
+        Text(LocalizedStringKey(label))
             .font(.system(size: 10 * scale, weight: .semibold))
             // Never wraps: beside the fixed-size account menu, the header squeezed
             // "Max 5×" onto two lines inside a circle.

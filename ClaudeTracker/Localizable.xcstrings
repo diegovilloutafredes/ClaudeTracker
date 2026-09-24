@@ -499,6 +499,16 @@
         }
       }
     },
+    "Free": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gratis"
+          }
+        }
+      }
+    },
     "Full %@ before window resets": {
       "comment": "Pace outlook: critical, limit reached before reset, with time delta",
       "localizations": {
