@@ -8,6 +8,39 @@ extension HTTPCookie {
     }
 }
 
+/// What a failed in-page `fetch` means, read from the token the fetch script throws.
+/// `callAsyncJavaScript` surfaces a JS `throw` as an `NSError` whose description contains
+/// the thrown string plus any wrapper text WebKit adds — so tokens match by substring.
+enum FetchFailure: Equatable {
+    /// Cloudflare answered with a challenge page (`cf-mitigated: challenge`). Says nothing
+    /// about the session, so it must never count toward expiry; only a real reload passes it.
+    case challenge
+    /// HTTP 401 or 403.
+    case unauthorized
+    case rateLimited
+    case notFound
+    /// Any other HTTP status.
+    case http
+    /// No HTTP status at all: a transport or script failure.
+    case network
+
+    init(message: String) {
+        if message.contains("CF_CHALLENGE") {
+            self = .challenge
+        } else if message.contains("HTTP_401") || message.contains("HTTP_403") {
+            self = .unauthorized
+        } else if message.contains("HTTP_429") {
+            self = .rateLimited
+        } else if message.contains("HTTP_404") {
+            self = .notFound
+        } else if message.contains("HTTP_") {
+            self = .http
+        } else {
+            self = .network
+        }
+    }
+}
+
 /// Fetches usage and account data from the unofficial claude.ai web API.
 ///
 /// Direct `URLSession` requests to claude.ai are blocked by Cloudflare's bot-detection layer.
@@ -25,6 +58,11 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// challenge that never clears). Without this, a stuck page would suspend every
     /// caller forever and silently stop the polling loop.
     private var readinessTimeoutTask: Task<Void, Never>?
+    /// Set when the loaded document can't be trusted for the next fetch: after a 401/403, a
+    /// Cloudflare-challenged fetch, a readiness timeout, or a failed navigation. `ensureReady`
+    /// then does a real top-level load instead of re-reading that same document's title,
+    /// which would hand the retry straight back to the page that just failed.
+    private var needsReload = false
     private var cachedOrgId: String?
     private(set) var cachedOrgName: String?
     private var cookieTask: Task<Void, Never>?
@@ -135,7 +173,7 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
                 armReadinessTimeout()
                 guard !isLoadingPage else { return }
                 isLoadingPage = true
-                if let host = webView.url?.host, host.contains("claude.ai"),
+                if !needsReload, let host = webView.url?.host, host.contains("claude.ai"),
                    webView.url?.path != "/login" {
                     checkPageReady()
                 } else {
@@ -173,6 +211,8 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
             self.readinessTimeoutTask = nil
             guard !self.readyWaiters.isEmpty else { return }
             AppLogger.shared.error("page readiness timed out — failing \(self.readyWaiters.count) waiter(s)")
+            // A challenge that never cleared stays loaded; only a fresh load retries it.
+            self.needsReload = true
             self.failAllWaiters(with: APIError.networkError(String(localized: "Page load timed out")))
         }
     }
@@ -185,15 +225,18 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
                 // the next poll reloads — marking a dead page "ready" would turn every
                 // subsequent fetch into an opaque network error.
                 self.isPageReady = false
+                self.needsReload = true
                 self.failAllWaiters(with: APIError.networkError(error.localizedDescription))
                 return
             }
             let title = (result as? String) ?? ""
+            // Known limit: matches Cloudflare's English interstitial title only.
             if title.lowercased().contains("just a moment") {
                 // Still on the Cloudflare challenge page — wait for the next didFinish event.
                 return
             }
             self.isPageReady = true
+            self.needsReload = false
             self.isLoadingPage = false
             self.resumeAllWaiters()
         }
@@ -224,23 +267,8 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// - Throws: `APIError` on network failure, HTTP error, or JSON decode failure.
     func fetchAccountInfo() async throws -> AccountInfo {
         try await ensureReady()
-        let result: Any?
-        do {
-            result = try await webView.callAsyncJavaScript(
-                """
-                const r = await fetch('/api/account', { credentials: 'include' });
-                if (!r.ok) throw new Error('HTTP_' + r.status);
-                return JSON.stringify(await r.json());
-                """,
-                contentWorld: .defaultClient
-            )
-        } catch {
-            throw mapJSError(error)
-        }
-        guard let str = result as? String, let data = str.data(using: .utf8) else {
-            throw APIError.invalidResponse
-        }
-        return try JSONDecoder().decode(AccountInfo.self, from: data)
+        let json = try await fetchJSONString("/api/account")
+        return try JSONDecoder().decode(AccountInfo.self, from: Data(json.utf8))
     }
 
     /// Fetches current usage windows for the user's organisation.
@@ -251,29 +279,12 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
         try await ensureReady()
 
         let orgId = try await resolveOrgId()
-        let result: Any?
+        let json = try await fetchJSONString("/api/organizations/\(orgId)/usage")
         do {
-            result = try await webView.callAsyncJavaScript(
-                """
-                const r = await fetch('/api/organizations/' + orgId + '/usage', { credentials: 'include' });
-                if (!r.ok) throw new Error('HTTP_' + r.status);
-                return JSON.stringify(await r.json());
-                """,
-                arguments: ["orgId": orgId],
-                contentWorld: .defaultClient
-            )
-        } catch {
-            throw mapJSError(error)
-        }
-
-        guard let str = result as? String, let data = str.data(using: .utf8) else {
-            throw APIError.invalidResponse
-        }
-        do {
-            return try JSONDecoder().decode(UsageResponse.self, from: data)
+            return try JSONDecoder().decode(UsageResponse.self, from: Data(json.utf8))
         } catch {
             // Log the payload head so an API format change is diagnosable from the log file.
-            AppLogger.shared.error("usage decode failed: \(error) — payload: \(str.prefix(500))")
+            AppLogger.shared.error("usage decode failed: \(error) — payload: \(json.prefix(500))")
             throw error
         }
     }
@@ -283,54 +294,72 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     private func resolveOrgId() async throws -> String {
         if let cached = cachedOrgId { return cached }
 
-        let result: Any?
-        do {
-            result = try await webView.callAsyncJavaScript(
-                """
-                const r = await fetch('/api/organizations', { credentials: 'include' });
-                if (!r.ok) throw new Error('HTTP_' + r.status);
-                return JSON.stringify(await r.json());
-                """,
-                contentWorld: .defaultClient
-            )
-        } catch {
-            throw mapJSError(error)
-        }
-
-        guard let str = result as? String, let data = str.data(using: .utf8) else {
-            throw APIError.invalidResponse
-        }
-        let orgs = try JSONDecoder().decode([Organization].self, from: data)
+        let json = try await fetchJSONString("/api/organizations")
+        let orgs = try JSONDecoder().decode([Organization].self, from: Data(json.utf8))
         guard let org = orgs.first else { throw APIError.noOrganization }
         cachedOrgId = org.uuid
         cachedOrgName = org.name
         return org.uuid
     }
 
-    /// Translates JavaScript `Error` messages from `callAsyncJavaScript` into typed `APIError` values.
+    /// Runs `fetch(path)` inside the page and returns the response body as a JSON string.
     ///
-    /// `callAsyncJavaScript` propagates JS `throw` as a generic `NSError` whose description contains
-    /// the thrown string — e.g. `"HTTP_401"`. Status codes are matched by substring to handle
-    /// any wrapper text the WebKit runtime may add around the original message.
+    /// A Cloudflare challenge page (`cf-mitigated: challenge`, checked before the status)
+    /// throws `CF_CHALLENGE`; any other non-2xx throws `HTTP_<status>`. `mapJSError` turns
+    /// both into `APIError`. The path travels as a script argument, never spliced into code.
+    private func fetchJSONString(_ path: String) async throws -> String {
+        let result: Any?
+        do {
+            result = try await webView.callAsyncJavaScript(
+                """
+                const r = await fetch(path, { credentials: 'include' });
+                if (r.headers.get('cf-mitigated') === 'challenge') throw new Error('CF_CHALLENGE');
+                if (!r.ok) throw new Error('HTTP_' + r.status);
+                return JSON.stringify(await r.json());
+                """,
+                arguments: ["path": path],
+                contentWorld: .defaultClient
+            )
+        } catch {
+            throw mapJSError(error)
+        }
+        guard let json = result as? String else { throw APIError.invalidResponse }
+        return json
+    }
+
+    /// Translates JavaScript `Error` messages from `callAsyncJavaScript` into typed `APIError`
+    /// values (classification in `FetchFailure`), applying each failure's side effects.
     private func mapJSError(_ error: Error) -> APIError {
         let msg = error.localizedDescription
-        if msg.contains("HTTP_401") || msg.contains("HTTP_403") {
+        switch FetchFailure(message: msg) {
+        case .challenge:
+            // Not a session problem — mapped to a network error so it never counts toward
+            // expiry. Only a top-level load passes the challenge.
             isPageReady = false
+            needsReload = true
+            return .networkError(String(localized: "Cloudflare check — retrying"))
+        case .unauthorized:
+            // The retry must come from a freshly loaded page, not the document that just
+            // failed (a re-read of its title would hand it straight back).
+            isPageReady = false
+            needsReload = true
             cachedOrgId = nil
             cachedOrgName = nil
             return .unauthorized
-        }
-        if msg.contains("HTTP_429") { return .rateLimited }
-        if msg.contains("HTTP_404") {
+        case .rateLimited:
+            return .rateLimited
+        case .notFound:
             // The cached org may no longer exist for this user (membership change,
             // server-side migration) — drop the memo so the next fetch re-resolves
             // the org list instead of failing on the stale UUID until app restart.
             cachedOrgId = nil
             cachedOrgName = nil
             return .httpError(msg)
+        case .http:
+            return .httpError(msg)
+        case .network:
+            return .networkError(msg)
         }
-        if msg.contains("HTTP_") { return .httpError(msg) }
-        return .networkError(msg)
     }
 
     // MARK: - WKUIDelegate
@@ -375,7 +404,10 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
         // A failed navigation leaves the page broken; without resetting readiness,
         // ensureReady keeps short-circuiting and every fetch runs against the dead
         // page until a 401 or a WebKit process crash happens to clear the flag.
+        // needsReload: the URL may still be a claude.ai route, and a title re-read of the
+        // broken document would pass readiness without reloading anything.
         isPageReady = false
+        needsReload = true
         isLoadingPage = false
         failAllWaiters(with: APIError.networkError(error.localizedDescription))
     }
@@ -384,6 +416,7 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
         // NSURLErrorCancelled fires on every redirect — safe to ignore.
         if (error as NSError).code == NSURLErrorCancelled { return }
         isPageReady = false
+        needsReload = true
         isLoadingPage = false
         failAllWaiters(with: APIError.networkError(error.localizedDescription))
     }

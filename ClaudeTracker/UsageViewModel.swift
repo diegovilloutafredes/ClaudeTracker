@@ -394,8 +394,8 @@ final class UsageViewModel {
                         statesByAccount[id, default: .init()].sessionExpired = true
                         timer?.cancel(); timer = nil
                     } else {
-                        // First 401: mapJSError already cleared isPageReady;
-                        // next poll reloads the page and retries automatically.
+                        // First 401: mapJSError marked the page for a real reload;
+                        // the next poll loads claude.ai afresh and retries automatically.
                         shouldSchedule = true
                     }
                 } else {

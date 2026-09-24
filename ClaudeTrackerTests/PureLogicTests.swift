@@ -326,6 +326,21 @@ final class PureLogicTests: XCTestCase {
         XCTAssertEqual(PaceRateUnit.perSecond.format(36), "0.0100%/s")
     }
 
+    // MARK: - FetchFailure
+
+    /// A Cloudflare-challenged fetch must never read as an auth failure: two of them in a
+    /// row would mark a valid session expired. The tokens arrive wrapped in WebKit's error
+    /// text, so classification is by substring.
+    func testFetchFailureClassifiesTheThrownToken() {
+        XCTAssertEqual(FetchFailure(message: "A JavaScript exception occurred: Error: CF_CHALLENGE"), .challenge)
+        XCTAssertEqual(FetchFailure(message: "A JavaScript exception occurred: Error: HTTP_401"), .unauthorized)
+        XCTAssertEqual(FetchFailure(message: "Error: HTTP_403"), .unauthorized)
+        XCTAssertEqual(FetchFailure(message: "Error: HTTP_429"), .rateLimited)
+        XCTAssertEqual(FetchFailure(message: "Error: HTTP_404"), .notFound)
+        XCTAssertEqual(FetchFailure(message: "Error: HTTP_500"), .http)
+        XCTAssertEqual(FetchFailure(message: "TypeError: Load failed"), .network)
+    }
+
     // MARK: - resetTimeText
 
     private func gmtCalendar() -> Calendar {
