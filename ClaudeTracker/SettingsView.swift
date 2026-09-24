@@ -281,6 +281,8 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .font(.callout)
                 Slider(value: $viewModel.popupScale, in: 0.75...1.5, step: 0.05)
+                    .accessibilityLabel(Text("Popup size"))
+                    .accessibilityValue(Text("\(Int((viewModel.popupScale * 100).rounded()))%"))
                 Text("\(Int((viewModel.popupScale * 100).rounded()))%")
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -311,6 +313,7 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                    .accessibilityLabel(Text("Rate unit"))
                 }
                 .padding(.leading, 20)
             }
@@ -377,6 +380,9 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .font(.callout)
                     Slider(value: $viewModel.paceWarningMinutes, in: 5...60, step: 5)
+                        .accessibilityLabel(Text("Warn with less than"))
+                        .accessibilityValue(Text(Duration.seconds(viewModel.paceWarningMinutes * 60)
+                            .formatted(.units(allowed: [.minutes], width: .wide))))
                     Text("\(Int(viewModel.paceWarningMinutes))m")
                         .font(.callout.monospacedDigit())
                         .foregroundStyle(.secondary)
@@ -470,6 +476,9 @@ private struct ToastDurationControls: View {
                     .foregroundStyle(permanent ? .tertiary : .secondary)
                 Slider(value: $duration, in: 1...30, step: 1)
                     .disabled(permanent)
+                    .accessibilityLabel(Text("Duration"))
+                    .accessibilityValue(permanent ? Text("Stay until dismissed")
+                                        : Text(Duration.seconds(duration).formatted(.units(allowed: [.seconds], width: .wide))))
                 Text(permanent ? "∞" : "\(Int(duration))s")
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(permanent ? .tertiary : .secondary)
