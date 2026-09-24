@@ -9,7 +9,7 @@ extension UsageViewModel {
     private var menuBarPaceText: String? {
         guard showPaceMenuBar, isAuthenticated, usage != nil, !isDataStale else { return nil }
         guard displayedUtilization < 100 else { return nil }
-        guard let paceData = pace(for: menuBarWindow.rawValue) else { return nil }
+        guard let key = displayedTrackedWindow?.key, let paceData = pace(for: key) else { return nil }
         return paceRateUnit.format(paceData.rate, prefix: true, short: true)
     }
 
@@ -20,8 +20,11 @@ extension UsageViewModel {
         guard isAuthenticated else { return String(localized: "Claude Tracker, signed out") }
         if usage == nil, error != nil { return String(localized: "Claude Tracker, usage unavailable") }
         guard usage != nil, !isDataStale else { return String(localized: "Claude Tracker, updating") }
-        let text = String(format: String(localized: "Claude Tracker, %@ at %@"), menuBarWindow.label, statusText)
-        guard menuBarPaceText != nil, let rate = pace(for: menuBarWindow.rawValue)?.rate else { return text }
+        // Names the window, which the menu bar itself doesn't under "Highest usage".
+        let tracked = displayedTrackedWindow
+        let text = String(format: String(localized: "Claude Tracker, %@ at %@"),
+                          tracked?.title ?? menuBarDisplay.label, statusText)
+        guard menuBarPaceText != nil, let key = tracked?.key, let rate = pace(for: key)?.rate else { return text }
         return String(format: String(localized: "%@, pace %@"), text, paceRateUnit.format(rate, prefix: true))
     }
 

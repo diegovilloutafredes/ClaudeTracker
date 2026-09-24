@@ -531,6 +531,16 @@
         }
       }
     },
+    "Highest usage": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mayor uso"
+          }
+        }
+      }
+    },
     "Install": {
       "comment": "Button to download and install an available update",
       "localizations": {

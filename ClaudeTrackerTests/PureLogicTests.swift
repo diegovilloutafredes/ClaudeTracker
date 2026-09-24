@@ -92,6 +92,47 @@ final class PureLogicTests: XCTestCase {
         XCTAssertEqual(adaptivePollInterval(windows: [], projectedMinutes: { _ in nil }), 10)
     }
 
+    // MARK: - Menu bar window choice
+
+    private func menuBarCandidates(fiveHour: Double, sevenDay: Double, fable: Double) -> [TrackedWindow] {
+        let now = Date()
+        return [window("five_hour", fiveHour, resetsIn: 3600, now: now),
+                window("seven_day", sevenDay, resetsIn: 86400, now: now),
+                window("scoped.Fable", fable, resetsIn: 86400, now: now, scoped: true)]
+    }
+
+    func testMenuBarShowsTheChosenBuiltInWindow() {
+        let windows = menuBarCandidates(fiveHour: 10, sevenDay: 30, fable: 90)
+        XCTAssertEqual(menuBarTrackedWindow(for: .fiveHour, in: windows)?.key, "five_hour")
+        XCTAssertEqual(menuBarTrackedWindow(for: .sevenDay, in: windows)?.key, "seven_day")
+    }
+
+    func testMenuBarHighestFollowsTheMostUtilizedWindowIncludingModelLimits() {
+        XCTAssertEqual(menuBarTrackedWindow(for: .highest, in: menuBarCandidates(fiveHour: 10, sevenDay: 30, fable: 90))?.key,
+                       "scoped.Fable")
+        XCTAssertEqual(menuBarTrackedWindow(for: .highest, in: menuBarCandidates(fiveHour: 70, sevenDay: 30, fable: 60))?.key,
+                       "five_hour")
+    }
+
+    func testMenuBarHighestPrefersDisplayOrderOnATie() {
+        // A stable pick: the pace badge and VoiceOver label follow the chosen window, so a tie
+        // must not flip between windows from poll to poll.
+        XCTAssertEqual(menuBarTrackedWindow(for: .highest, in: menuBarCandidates(fiveHour: 40, sevenDay: 40, fable: 40))?.key,
+                       "five_hour")
+    }
+
+    func testMenuBarHasNoWindowWhenTheChoiceIsMissing() {
+        XCTAssertNil(menuBarTrackedWindow(for: .highest, in: []))
+        // Team orgs drop an idle `five_hour`.
+        XCTAssertNil(menuBarTrackedWindow(for: .fiveHour, in: Array(menuBarCandidates(fiveHour: 0, sevenDay: 30, fable: 5).dropFirst())))
+    }
+
+    func testMenuBarDisplayKeepsThePersistedWindowValues() {
+        // Stored under the same key as the old MenuBarWindow setting: existing choices must load.
+        XCTAssertEqual(MenuBarDisplay(rawValue: MenuBarWindow.fiveHour.rawValue), .fiveHour)
+        XCTAssertEqual(MenuBarDisplay(rawValue: MenuBarWindow.sevenDay.rawValue), .sevenDay)
+    }
+
     // MARK: - Poll log throttle
 
     func testPollLogSkipsARepeatedLineUntilTheHeartbeat() {

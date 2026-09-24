@@ -12,11 +12,11 @@ final class UsageViewModel {
     /// `var` (never reassigned) so `@Bindable`'s `$viewModel.updates.autoUpdate` resolves to a
     /// reference-writable key path for the Settings toggle.
     var updates = UpdateService()
-    /// Which window's utilization the menu bar label tracks.
-    var menuBarWindow: MenuBarWindow = .fiveHour {
+    /// Which window's utilization the menu bar label tracks (resolved by `displayedTrackedWindow`).
+    var menuBarDisplay: MenuBarDisplay = .fiveHour {
         didSet {
-            guard menuBarWindow != oldValue else { return }
-            UserDefaults.standard.set(menuBarWindow.rawValue, forKey: PrefKey.menuBarWindow)
+            guard menuBarDisplay != oldValue else { return }
+            UserDefaults.standard.set(menuBarDisplay.rawValue, forKey: PrefKey.menuBarWindow)
         }
     }
 
@@ -272,9 +272,9 @@ final class UsageViewModel {
     }
 
     private func loadPersistedPreferences() {
-        if let savedWindow = UserDefaults.standard.string(forKey: PrefKey.menuBarWindow),
-           let window = MenuBarWindow(rawValue: savedWindow) {
-            menuBarWindow = window
+        if let saved = UserDefaults.standard.string(forKey: PrefKey.menuBarWindow),
+           let display = MenuBarDisplay(rawValue: saved) {
+            menuBarDisplay = display
         }
 
         // Version 2 migration: resets any earlier installation that may have had sound and banner
@@ -515,9 +515,17 @@ final class UsageViewModel {
         usage?.trackedWindows.map(\.window.utilization).max() ?? 0
     }
 
-    /// The window the user has selected for the menu bar label.
+    /// The window the menu bar label tracks: the user's choice, resolved against the rows the
+    /// popover shows (a hidden per-model row can't drive the menu bar).
+    var displayedTrackedWindow: TrackedWindow? {
+        guard let usage else { return nil }
+        let shown = usage.trackedWindows.filter { showModelWindows || !$0.isModelScoped }
+        return menuBarTrackedWindow(for: menuBarDisplay, in: shown)
+    }
+
+    /// The window the menu bar label tracks.
     var displayedWindow: UsageWindow? {
-        usage?.allWindows.first { $0.0 == menuBarWindow }?.1
+        displayedTrackedWindow?.window
     }
 
     /// Utilization of the window the user has selected for the menu bar label.
@@ -568,7 +576,8 @@ final class UsageViewModel {
     }
 
     func displayedWindowPaceUrgency() -> Double {
-        guard let paceData = pace(for: menuBarWindow.rawValue),
+        guard let key = displayedTrackedWindow?.key,
+              let paceData = pace(for: key),
               let proj = paceData.projectedHours,
               proj > 0,
               let resetDate = displayedWindow?.resetsAtDate else { return 0 }

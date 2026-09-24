@@ -269,9 +269,9 @@ struct SettingsView: View {
 
     private var displaySection: some View {
         Section("Display") {
-            Picker("Menu bar window", selection: $viewModel.menuBarWindow) {
-                ForEach(MenuBarWindow.allCases) { window in
-                    Text(window.label).tag(window)
+            Picker("Menu bar window", selection: $viewModel.menuBarDisplay) {
+                ForEach(MenuBarDisplay.allCases) { display in
+                    Text(display.label).tag(display)
                 }
             }
 

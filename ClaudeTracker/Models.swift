@@ -201,6 +201,7 @@ func windowIsStale(resetsAt: Date?, lastUpdated: Date?, now: Date) -> Bool {
 /// and read back in startup loading — a single namespace prevents a typo from silently
 /// desyncing the write and read sides.
 enum PrefKey {
+    /// Stores `MenuBarDisplay`; the key name predates the "Highest usage" option.
     static let menuBarWindow = "menuBarWindow"
     static let notify5Hour = "notify5Hour"
     static let notify7Day = "notify7Day"
@@ -615,7 +616,34 @@ enum PaceRateUnit: String, CaseIterable, Identifiable, Sendable {
 
 // MARK: - Menu Bar Display Option
 
-/// The rate-limit window whose utilization the menu bar label tracks.
+/// The Settings choice for what the menu bar label tracks. Raw values match `MenuBarWindow`
+/// so the preference saved before `.highest` existed loads unchanged.
+enum MenuBarDisplay: String, CaseIterable, Identifiable, Sendable {
+    case fiveHour = "five_hour"
+    case sevenDay = "seven_day"
+    /// Whichever shown window is most utilized — a weekly model limit (Fable) is often the
+    /// one that runs out first.
+    case highest
+
+    var id: String { rawValue }
+
+    var label: String {
+        MenuBarWindow(rawValue: rawValue)?.label ?? String(localized: "Highest usage")
+    }
+}
+
+/// The window the menu bar tracks for `display`, from `windows` in display order: the chosen
+/// built-in window, or for `.highest` the most utilized one — the first on a tie, so the pick
+/// can't flip between equal windows from poll to poll.
+func menuBarTrackedWindow(for display: MenuBarDisplay, in windows: [TrackedWindow]) -> TrackedWindow? {
+    guard display == .highest else { return windows.first { $0.key == display.rawValue } }
+    return windows.reduce(nil) { best, next in
+        guard let best, best.window.utilization >= next.window.utilization else { return next }
+        return best
+    }
+}
+
+/// One of the two built-in rate-limit windows. Its raw value is the window's API key.
 enum MenuBarWindow: String, CaseIterable, Identifiable, Sendable {
     case fiveHour = "five_hour"
     case sevenDay = "seven_day"
