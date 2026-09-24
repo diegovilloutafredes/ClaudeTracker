@@ -13,6 +13,8 @@ struct UsageWindowView: View {
     let use24Hour: Bool
     /// 7-day windows include month + day in the absolute reset time; 5-hour windows don't.
     let includeResetDate: Bool
+    /// Urgency-colored text takes the legible variant for the current appearance.
+    @Environment(\.colorScheme) private var colorScheme
 
     private func sf(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size * scale, weight: weight)
@@ -26,7 +28,8 @@ struct UsageWindowView: View {
                 Spacer()
                 Text(isStale ? "0%" : "\(Int(window.utilization))%")
                     .font(.system(size: 12 * scale, weight: .bold).monospacedDigit())
-                    .foregroundStyle(isStale ? Color.secondary : window.utilizationColor)
+                    .foregroundStyle(isStale ? Color.secondary
+                                     : urgencyTextColor(window.utilization / 100, isDark: colorScheme == .dark))
             }
 
             ProgressView(value: isStale ? 0.0 : window.utilizationFraction)
@@ -76,7 +79,7 @@ struct UsageWindowView: View {
         func pick(_ messages: [LocalizedStringKey]) -> LocalizedStringKey {
             messages[window.resetsAtDate.map { outlookMessageIndex(reset: $0, count: messages.count) } ?? 0]
         }
-        let color = paceUrgencyColor(proj: proj, hoursToReset: hoursToReset)
+        let color = paceUrgencyColor(proj: proj, hoursToReset: hoursToReset, forTextIn: colorScheme)
 
         switch PaceBand(projectedHours: proj, hoursToReset: hoursToReset) {
         case .safe:
@@ -120,7 +123,8 @@ struct UsageWindowView: View {
     }
 
     private func paceLine(rate: Double) -> some View {
-        let color = paceAccentColor(projectedHours: projectedHours, resetsAt: window.resetsAtDate, isStale: isStale)
+        let color = paceAccentColor(projectedHours: projectedHours, resetsAt: window.resetsAtDate, isStale: isStale,
+                                    forTextIn: colorScheme)
 
         let rateText = paceRateUnit.format(rate, prefix: true)
         let projText: String? = projectedHours.flatMap { h in

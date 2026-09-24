@@ -13,10 +13,13 @@ extension UsageViewModel {
         return paceRateUnit.format(paceData.rate, prefix: true, short: true)
     }
 
-    private var menuBarPaceColor: NSColor {
-        let urgency = displayedWindowPaceUrgency()
+    private func menuBarPaceColor(urgency: Double) -> NSColor {
         // Safe pace is neutral, matching the popover's gray rate text.
-        return urgency == 0 ? .secondaryLabelColor : urgencyNSColor(urgency)
+        guard urgency > 0 else { return .secondaryLabelColor }
+        // Resolved at draw time against the menu bar's own appearance, like `labelColor`.
+        return NSColor(name: nil) { appearance in
+            urgencyTextNSColor(urgency, isDark: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+        }
     }
 
     var menuBarImage: NSImage {
@@ -28,9 +31,11 @@ extension UsageViewModel {
         let text = statusText
         let color = statusColor
         let paceText = menuBarPaceText
-        let paceColor = menuBarPaceColor
+        let paceUrgency = displayedWindowPaceUrgency()
+        let paceColor = menuBarPaceColor(urgency: paceUrgency)
         let appearance = NSApp.effectiveAppearance.name.rawValue
-        let paceKey = paceText.map { $0 + paceColor.description } ?? ""
+        // Keyed on the urgency: a dynamic color's description doesn't change with it.
+        let paceKey = paceText.map { $0 + "\(paceUrgency)" } ?? ""
         let key = icon + text + color.description + paceKey + appearance
         if key == cachedMenuBarKey { return cachedMenuBarImage }
         cachedMenuBarKey = key

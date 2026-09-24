@@ -277,6 +277,42 @@ final class PureLogicTests: XCTestCase {
         XCTAssertEqual(paceAccentColor(projectedHours: 2, resetsAt: reset, isStale: true), .secondary)
     }
 
+    func testContrastRatioSpansBlackOnWhite() {
+        XCTAssertEqual(contrastRatio(.black, .white), 21, accuracy: 0.01)
+        XCTAssertEqual(contrastRatio(.white, .white), 1, accuracy: 0.01)
+    }
+
+    func testUrgencyTextColorIsLegibleOnBothPopoverBackgrounds() {
+        // The raw gradient is 1.2–2.4:1 on the light popover from green to orange, and
+        // red is ~3:1 on the dark one; text needs WCAG AA (4.5:1) across the whole range.
+        for i in 0...20 {
+            let t = Double(i) / 20
+            for isDark in [false, true] {
+                let ratio = contrastRatio(urgencyTextNSColor(t, isDark: isDark), popoverBackground(isDark: isDark))
+                XCTAssertGreaterThanOrEqual(ratio, 4.5, "t=\(t) dark=\(isDark)")
+            }
+        }
+    }
+
+    func testUrgencyTextColorKeepsTheGradientHue() {
+        for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let base = urgencyNSColor(t).usingColorSpace(.sRGB)!
+            for isDark in [false, true] {
+                let text = urgencyTextNSColor(t, isDark: isDark).usingColorSpace(.sRGB)!
+                XCTAssertEqual(text.hueComponent, base.hueComponent, accuracy: 0.01, "t=\(t) dark=\(isDark)")
+            }
+        }
+    }
+
+    func testPaceTextColorsUseTheLegibleVariant() {
+        let reset = Date().addingTimeInterval(4 * 3600)
+        XCTAssertEqual(paceUrgencyColor(proj: 3.5, hoursToReset: 4, forTextIn: .light), urgencyTextColor(0.7, isDark: false))
+        XCTAssertEqual(paceAccentColor(projectedHours: 2, resetsAt: reset, isStale: false, forTextIn: .dark),
+                       urgencyTextColor(1.0, isDark: true))
+        // A safe pace stays neutral as text too.
+        XCTAssertEqual(paceUrgencyColor(proj: 5, hoursToReset: 4, forTextIn: .light), .secondary)
+    }
+
     func testUrgencyNSColorMatchesSwiftUIGradient() {
         // The menu bar (AppKit) and the popover (SwiftUI) must render the same hue for the
         // same urgency. NSColor(hue:) lives in the calibrated/generic RGB space while

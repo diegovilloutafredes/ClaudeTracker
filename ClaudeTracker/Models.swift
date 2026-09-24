@@ -16,6 +16,50 @@ func urgencyNSColor(_ urgency: Double) -> NSColor {
     return NSColor(hue: 0.33 * (1 - t), saturation: 0.85, brightness: 0.9, alpha: 1.0)
 }
 
+/// Reference backgrounds for text contrast: the popover's light and dark window material,
+/// roughly #ECECEC and #2B2B2B.
+func popoverBackground(isDark: Bool) -> NSColor {
+    let v: CGFloat = isDark ? 0x2B / 255.0 : 0xEC / 255.0
+    return NSColor(srgbRed: v, green: v, blue: v, alpha: 1)
+}
+
+/// WCAG 2 contrast ratio between two opaque colors, from 1 to 21.
+func contrastRatio(_ a: NSColor, _ b: NSColor) -> Double {
+    func luminance(_ color: NSColor) -> Double {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        func linear(_ v: CGFloat) -> Double {
+            v <= 0.04045 ? Double(v) / 12.92 : pow((Double(v) + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(c.redComponent) + 0.7152 * linear(c.greenComponent) + 0.0722 * linear(c.blueComponent)
+    }
+    let (la, lb) = (luminance(a), luminance(b))
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+}
+
+/// `urgencyNSColor` for text: mixed toward black on a light popover, or white on a dark
+/// one, just far enough to reach WCAG AA (4.5:1) against it. The mix keeps the hue. The
+/// raw gradient stays for bars, charts, and the menu bar icon; as text it read at 1.2–2.4:1
+/// on a light popover from green to orange, and red at ~3:1 on a dark one.
+func urgencyTextNSColor(_ urgency: Double, isDark: Bool) -> NSColor {
+    guard let base = urgencyNSColor(urgency).usingColorSpace(.sRGB) else { return urgencyNSColor(urgency) }
+    let background = popoverBackground(isDark: isDark)
+    let target: CGFloat = isDark ? 1 : 0
+    var color = base
+    for step in 0...50 {
+        let f = CGFloat(step) / 50
+        color = NSColor(srgbRed: base.redComponent + (target - base.redComponent) * f,
+                        green: base.greenComponent + (target - base.greenComponent) * f,
+                        blue: base.blueComponent + (target - base.blueComponent) * f, alpha: 1)
+        if contrastRatio(color, background) >= 4.5 { break }
+    }
+    return color
+}
+
+/// SwiftUI twin of `urgencyTextNSColor`.
+func urgencyTextColor(_ urgency: Double, isDark: Bool) -> Color {
+    Color(nsColor: urgencyTextNSColor(urgency, isDark: isDark))
+}
+
 /// Pace state as an urgency value on the same 0…1 scale as utilization, so the menu bar
 /// can take `max(utilization, pace)` and still agree with the popover's `PaceBand`:
 /// safe → 0, close → 0.7, over → 1.0. The single source for every pace color.
@@ -28,18 +72,21 @@ func paceUrgency(projectedHours: Double, hoursToReset: Double) -> Double {
 }
 
 /// Shared 3-band color for pace UI (rate text, outlook message, chart projection line).
-/// `proj` is projected hours to 100%; `hoursToReset` is time until window reset.
-func paceUrgencyColor(proj: Double, hoursToReset: Double) -> Color {
+/// `proj` is projected hours to 100%; `hoursToReset` is time until window reset. Pass the
+/// color scheme for text, which takes the legible `urgencyTextColor` variant.
+func paceUrgencyColor(proj: Double, hoursToReset: Double, forTextIn scheme: ColorScheme? = nil) -> Color {
     let urgency = paceUrgency(projectedHours: proj, hoursToReset: hoursToReset)
-    return urgency == 0 ? .secondary : urgencyColor(urgency)
+    guard urgency > 0 else { return .secondary }
+    return scheme.map { urgencyTextColor(urgency, isDark: $0 == .dark) } ?? urgencyColor(urgency)
 }
 
 /// Pace accent for a window's row and its charts: neutral unless there is a projection,
 /// a reset to measure it against, and the window is still live. One helper so the pace
-/// rate text, the pace chart, and the forecast line can never disagree.
-func paceAccentColor(projectedHours: Double?, resetsAt: Date?, isStale: Bool, now: Date = Date()) -> Color {
+/// rate text, the pace chart, and the forecast line can never disagree on the band.
+func paceAccentColor(projectedHours: Double?, resetsAt: Date?, isStale: Bool,
+                     forTextIn scheme: ColorScheme? = nil, now: Date = Date()) -> Color {
     guard !isStale, let proj = projectedHours, let reset = resetsAt else { return .secondary }
-    return paceUrgencyColor(proj: proj, hoursToReset: reset.timeIntervalSince(now) / 3600)
+    return paceUrgencyColor(proj: proj, hoursToReset: reset.timeIntervalSince(now) / 3600, forTextIn: scheme)
 }
 
 /// Returns true when `remote` is a higher semantic version than `current`.
