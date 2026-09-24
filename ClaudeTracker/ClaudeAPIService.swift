@@ -125,8 +125,8 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// signing an expired account back in reuses its own store, which may still hold the
     /// rejected cookie — accepting that one would report success before the user signed in.
     ///
-    /// - Parameter onFound: Called on the main thread with the session key value.
-    func startCookiePolling(onFound: @escaping (String) -> Void) {
+    /// - Parameter onFound: Called on the main thread once a new session cookie appears.
+    func startCookiePolling(onFound: @escaping () -> Void) {
         cookieTask?.cancel()
         cookieTask = Task { [weak self] in
             let baseline = await self?.sessionKeyValue()
@@ -135,7 +135,7 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
                 if let session = await self.sessionKeyValue(), session != baseline {
                     guard !Task.isCancelled else { return }
                     self.cookieTask = nil
-                    onFound(session)
+                    onFound()
                     return
                 }
                 try? await Task.sleep(for: .seconds(1))

@@ -140,7 +140,7 @@ extension UsageViewModel {
     }
 
     /// Called by the login flow once a session cookie has been detected for the active account.
-    func handleSessionFound(_ key: String) {
+    func handleSessionFound() {
         guard let id = activeAccountID else { return }
         statesByAccount[id, default: .init()].error = nil
         statesByAccount[id, default: .init()].sessionExpired = false

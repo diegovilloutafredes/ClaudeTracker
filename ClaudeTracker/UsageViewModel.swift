@@ -488,7 +488,8 @@ final class UsageViewModel {
         timer = Task { [weak self] in
             try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled else { return }
-            await MainActor.run { self?.fetchUsage() }
+            // Inherits the main actor from this method, so no hop is needed.
+            self?.fetchUsage()
         }
     }
 

@@ -33,7 +33,7 @@ final class LoginWindowController {
     ///     Used by `addAccount` to roll back the placeholder account row.
     func open(
         apiService: ClaudeAPIService,
-        onSessionFound: @escaping (String) -> Void,
+        onSessionFound: @escaping () -> Void,
         onCancel: (() -> Void)? = nil
     ) {
         apiService.onPopupRequested = { [weak self] popupView in
@@ -56,9 +56,9 @@ final class LoginWindowController {
 
         let loginView = LoginView(
             apiService: apiService,
-            onSessionFound: { [weak self] key in
+            onSessionFound: { [weak self] in
                 self?.sessionFound = true
-                onSessionFound(key)
+                onSessionFound()
                 self?.autoCloseTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .seconds(1.5))
                     guard !Task.isCancelled else { return }
@@ -176,7 +176,7 @@ final class LoginWindowController {
 /// Hosts the embedded web view and a status banner during and after sign-in.
 struct LoginView: View {
     let apiService: ClaudeAPIService
-    let onSessionFound: (String) -> Void
+    let onSessionFound: () -> Void
     @State private var found = false
 
     var body: some View {
@@ -191,9 +191,9 @@ struct LoginView: View {
         .frame(minWidth: 700, minHeight: 500)
         .onAppear {
             apiService.loadLoginPage()
-            apiService.startCookiePolling { key in
+            apiService.startCookiePolling {
                 found = true
-                onSessionFound(key)
+                onSessionFound()
             }
         }
         .onDisappear {

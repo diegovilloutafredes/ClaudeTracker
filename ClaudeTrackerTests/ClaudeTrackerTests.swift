@@ -290,7 +290,7 @@ final class ClaudeTrackerTests: XCTestCase {
         vm.statesByAccount[account.id]?.sessionExpired = true
         XCTAssertTrue(vm.sessionNeedsSignIn)
 
-        vm.handleSessionFound("new-session")
+        vm.handleSessionFound()
         XCTAssertFalse(vm.sessionNeedsSignIn)
         XCTAssertEqual(vm.statesByAccount[account.id]?.consecutive401s, 0)
         XCTAssertTrue(vm.isAuthenticated)
