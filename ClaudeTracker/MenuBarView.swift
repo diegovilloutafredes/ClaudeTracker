@@ -106,9 +106,20 @@ struct MenuBarView: View {
         }
     }
 
-    /// Multi-account chevron picker. Shown only when 2+ accounts exist; single-account users
-    /// see the original subscription badge instead so the UI is unchanged for them.
+    /// Multi-account picker. Shown only when 2+ accounts exist; single-account users see the
+    /// original subscription badge instead so the UI is unchanged for them. The badge sits
+    /// outside the menu: macOS renders a menu button's label as a plain title + image, which
+    /// dropped a badge placed inside it and moved the hand-drawn chevron in front of the name.
     private var accountPicker: some View {
+        HStack(spacing: 6 * s) {
+            accountMenu
+            if let sub = viewModel.activeSubscriptionLabel {
+                SubscriptionBadge(label: sub, scale: s)
+            }
+        }
+    }
+
+    private var accountMenu: some View {
         Menu {
             ForEach(viewModel.accounts) { account in
                 Button {
@@ -126,22 +137,15 @@ struct MenuBarView: View {
                 viewModel.openLoginForNewAccount()
             }
         } label: {
-            HStack(spacing: 4 * s) {
-                if let active = viewModel.accounts.first(where: { $0.id == viewModel.activeAccountID }) {
-                    Text(active.label)
-                        .font(sf(10, .semibold))
-                        .lineLimit(1)
-                }
-                if let sub = viewModel.activeSubscriptionLabel {
-                    SubscriptionBadge(label: sub, scale: s)
-                }
-                Image(systemName: "chevron.down")
-                    .font(sf(9, .semibold))
-                    .foregroundStyle(.secondary)
+            if let active = viewModel.accounts.first(where: { $0.id == viewModel.activeAccountID }) {
+                Text(active.label)
+                    .font(sf(10, .semibold))
+                    .lineLimit(1)
             }
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        // `.button` draws the system menu arrow on macOS; `.borderlessButton` is soft-deprecated.
+        .menuStyle(.button)
+        .buttonStyle(.borderless)
         .fixedSize()
     }
 
