@@ -315,12 +315,16 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// A Cloudflare challenge page (`cf-mitigated: challenge`, checked before the status)
     /// throws `CF_CHALLENGE`; any other non-2xx throws `HTTP_<status>`. `mapJSError` turns
     /// both into `APIError`. The path travels as a script argument, never spliced into code.
+    ///
+    /// The 30 s abort is the only timeout on this path: `callAsyncJavaScript` doesn't observe
+    /// Swift task cancellation, so a stalled fetch would leave the poll suspended forever
+    /// (`fetchTask?.cancel()` can't reach it). The abort surfaces as a network error.
     private func fetchJSONString(_ path: String) async throws -> String {
         let result: Any?
         do {
             result = try await webView.callAsyncJavaScript(
                 """
-                const r = await fetch(path, { credentials: 'include' });
+                const r = await fetch(path, { credentials: 'include', signal: AbortSignal.timeout(30000) });
                 if (r.headers.get('cf-mitigated') === 'challenge') throw new Error('CF_CHALLENGE');
                 if (!r.ok) throw new Error('HTTP_' + r.status);
                 return JSON.stringify(await r.json());
