@@ -1,0 +1,6 @@
+# Copies of the workspace's canonical shared data (claudetracker-shared: fixtures/, copy/).
+# The workspace gate compares them byte for byte, and the signing-key test verifies a
+# signature over the exact bytes, so a Windows checkout must never convert their line endings.
+ClaudeTrackerTests/Fixtures/** -text
+ClaudeTracker/Localizable.xcstrings -text
+*.sig binary

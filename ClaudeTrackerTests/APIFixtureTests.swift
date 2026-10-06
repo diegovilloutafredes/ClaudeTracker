@@ -8,8 +8,11 @@ import SwiftUI
 /// - 2026-09-10, Max 5x org.
 /// - 2026-09-21, Max 5x org: first sighting of a populated `seven_day_breakdown` and of four
 ///   more null window keys.
-private func livePayload(_ date: String) throws -> String {
-    let url = try XCTUnwrap(Bundle(for: APIFixtureTests.self).url(forResource: "live-usage-\(date)", withExtension: "json"))
+///
+/// They are copies of the workspace's canonical vectors (`shared/fixtures`). Its vector
+/// checker looks for each file's full name in the test sources, so callers pass the file name.
+private func livePayload(_ file: String) throws -> String {
+    let url = try XCTUnwrap(Bundle(for: APIFixtureTests.self).url(forResource: file, withExtension: nil))
     return try String(contentsOf: url, encoding: .utf8)
 }
 
@@ -331,7 +334,7 @@ final class APIFixtureTests: XCTestCase {
         // First live sighting of a non-"normal" severity and of an is_active == true entry
         // sitting on the highest-percent window; also carries the unmodeled top-level key
         // copper_kite that Codable must keep dropping silently (seven_day_breakdown is null here).
-        let r = try decode(UsageResponse.self, livePayload("2026-09-10"))
+        let r = try decode(UsageResponse.self, livePayload("live-usage-2026-09-10.json"))
         XCTAssertEqual(r.fiveHour?.utilization, 4)
         XCTAssertEqual(r.sevenDay?.utilization, 38)
         XCTAssertNil(r.sevenDaySonnet)
@@ -355,7 +358,7 @@ final class APIFixtureTests: XCTestCase {
         // appeared (harbor_lantern, wattle_ember, cedar_ember, amber_gauge) — the latter are
         // unmodeled, so Codable must keep dropping them silently. is_active is again true
         // only on the highest-percent limit (scoped 6 > session 4 > weekly 3).
-        let r = try decode(UsageResponse.self, livePayload("2026-09-21"))
+        let r = try decode(UsageResponse.self, livePayload("live-usage-2026-09-21.json"))
         XCTAssertEqual(r.fiveHour?.utilization, 4)
         XCTAssertEqual(r.sevenDay?.utilization, 3)
         XCTAssertNil(r.sevenDaySonnet)
@@ -377,7 +380,7 @@ final class APIFixtureTests: XCTestCase {
     }
 
     func testSevenDayBreakdownNilOnOlderPayloadsAndWhenWrongTyped() throws {
-        let old = try decode(UsageResponse.self, livePayload("2026-09-10"))
+        let old = try decode(UsageResponse.self, livePayload("live-usage-2026-09-10.json"))
         XCTAssertNil(old.sevenDayBreakdown)
         XCTAssertEqual(breakdownSignature(old), "")
         XCTAssertNil(try decode(UsageResponse.self, "{}").sevenDayBreakdown)
@@ -433,7 +436,7 @@ final class APIFixtureTests: XCTestCase {
     // MARK: - Tracked windows
 
     func testTrackedWindowsListsBuiltInsThenScopedModelsFromLivePayload() throws {
-        let r = try decode(UsageResponse.self, livePayload("2026-09-10"))
+        let r = try decode(UsageResponse.self, livePayload("live-usage-2026-09-10.json"))
         let tracked = r.trackedWindows
         XCTAssertEqual(tracked.map(\.key), ["five_hour", "seven_day", "scoped.Fable"])
         XCTAssertEqual(tracked.map(\.isModelScoped), [false, false, true])
