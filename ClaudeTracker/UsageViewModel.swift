@@ -49,6 +49,9 @@ final class UsageViewModel {
     var activeSubscriptionLabel: String? {
         accountInfo?.subscriptionLabel ?? accounts.first { $0.id == activeAccountID }?.subscriptionLabel
     }
+    /// The active account's next billing event for the popover's footer (CT-010). Nil until the
+    /// subscription details are read, and when no date is ahead.
+    var activePlanEvent: PlanEvent? { upcomingPlanEvent(activeState?.subscription, now: Date()) }
     /// True when an account is active and its session is healthy. False during migration,
     /// when no accounts exist, when the active id is missing from the roster (a reclaimed
     /// placeholder, an undecodable roster), or when a 401 marked the active session expired.
@@ -391,6 +394,7 @@ final class UsageViewModel {
                 statesByAccount[id] = s
                 if let name = svc.cachedOrgName { applyOrgNameToRoster(id: id, orgName: name) }
                 retryAccountInfoIfMissing(id: id, svc: svc)
+                refreshSubscriptionIfDue(id: id, svc: svc)
                 shouldSchedule = true
             } catch let err as ClaudeAPIService.APIError {
                 guard !Task.isCancelled else { return }

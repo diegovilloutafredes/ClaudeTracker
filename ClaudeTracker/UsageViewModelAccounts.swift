@@ -220,6 +220,37 @@ extension UsageViewModel {
         Task { [weak self] in await self?.refreshAccountInfo(id: id, svc: svc) }
     }
 
+    /// Reads the plan's subscription details after a successful poll when they are due (CT-010):
+    /// first after the session starts, then every six hours. Beside the poll, never before it:
+    /// the first usage poll is not held up, and a failure here is only logged — the renewal date
+    /// is optional, and nothing else depends on it.
+    func refreshSubscriptionIfDue(id: UUID, svc: ClaudeAPIService) {
+        guard subscriptionRefreshDue(lastAttempt: statesByAccount[id]?.subscriptionAttemptedAt, now: Date()) else { return }
+        statesByAccount[id, default: .init()].subscriptionAttemptedAt = Date()
+        Task { [weak self] in await self?.refreshSubscription(id: id, svc: svc) }
+    }
+
+    private func refreshSubscription(id: UUID, svc: ClaudeAPIService) async {
+        do {
+            let details = try await svc.fetchSubscriptionDetails()
+            // The account was removed meanwhile: its state must not come back.
+            guard let old = statesByAccount[id] else { return }
+            let signature = subscriptionSignature(details)
+            if old.subscription.map(subscriptionSignature) != signature {
+                AppLogger.shared.info("subscription: \(signature)")
+            }
+            statesByAccount[id]?.subscription = details
+        } catch {
+            // A read cut short because its service was torn down (an account switch) is not a
+            // failure, and is due again at that account's next poll.
+            guard apiService === svc else {
+                statesByAccount[id]?.subscriptionAttemptedAt = nil
+                return
+            }
+            AppLogger.shared.error("subscription details fetch failed: \(error.localizedDescription)")
+        }
+    }
+
     /// Switches the active account: cancels in-flight work, dismisses any toasts that
     /// belonged to the outgoing account, persists the new selection, and starts polling
     /// against the new account's data store.

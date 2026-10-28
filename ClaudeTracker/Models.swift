@@ -293,6 +293,48 @@ func resetTimeText(reset: Date, now: Date, use24Hour: Bool, includeDate: Bool = 
     return reset.formatted(style)
 }
 
+// MARK: - Next Billing Date (CT-010)
+
+/// How often the subscription details are read again: six hours (BUSINESS_RULES `subscription-refresh`).
+let subscriptionRefreshSeconds: TimeInterval = 21600
+
+/// What happens to the plan next, and when: it renews, or it runs out.
+enum PlanEvent: Equatable, Sendable {
+    case renews(Date)
+    case ends(Date)
+}
+
+/// The event the popover's footer shows, or nil when there is nothing ahead to show. A plan that
+/// is ending says when it ends (`plan_ending_at`); any other, its next charge (`next_charge_at`).
+/// A time that has passed is never shown: the next reading brings the next one.
+func upcomingPlanEvent(_ details: SubscriptionDetails?, now: Date) -> PlanEvent? {
+    if let end = details?.planEndingAtDate, end > now { return .ends(end) }
+    if let next = details?.nextChargeAtDate, next > now { return .renews(next) }
+    return nil
+}
+
+/// The day of a billing event as the footer writes it: abbreviated month and day in the reader's
+/// time zone ("Nov 19"), with the year when it is not this year's ("Jan 5, 2027"), as an annual
+/// plan's can be. The local day, as claude.ai's billing page writes it: a charge at 01:12 UTC
+/// falls on the day before in the Americas.
+func planDateText(_ date: Date, now: Date, calendar: Calendar = .current, locale: Locale = .current) -> String {
+    var style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone)
+        .month(.abbreviated)
+        .day()
+    if calendar.component(.year, from: date) != calendar.component(.year, from: now) {
+        style = style.year()
+    }
+    return date.formatted(style)
+}
+
+/// Whether the subscription details are due to be read: never yet for this account in this
+/// session, or the last attempt is `subscriptionRefreshSeconds` old. An attempt counts whether it
+/// worked or not, so a member refused the endpoint is asked again six hours later, not at every poll.
+func subscriptionRefreshDue(lastAttempt: Date?, now: Date) -> Bool {
+    guard let last = lastAttempt else { return true }
+    return now.timeIntervalSince(last) >= subscriptionRefreshSeconds
+}
+
 // MARK: - Polling Tuning
 
 /// Computes the adaptive polling interval for a single usage window.
@@ -750,6 +792,10 @@ struct AccountState: Sendable {
     var accountInfo: AccountInfo?
     /// When `/api/account` was last requested; throttles the retry while `accountInfo` is nil.
     var accountInfoAttemptedAt: Date?
+    /// The plan's subscription details (CT-010): nil until first read, kept through a failed read.
+    var subscription: SubscriptionDetails?
+    /// When `subscription_details` was last requested; `subscriptionRefreshDue` reads it.
+    var subscriptionAttemptedAt: Date?
     /// Tracks the parsed `resetsAt` per window key; `detectResets` reads and rewrites it.
     var previousResetsAt: [String: Date] = [:]
     /// Rolling 5-minute utilization history per window key, used by `computePace`.

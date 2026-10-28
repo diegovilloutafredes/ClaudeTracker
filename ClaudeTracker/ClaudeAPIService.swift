@@ -297,6 +297,19 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
+    /// Fetches the organisation's subscription details, for the plan's next billing date (CT-010).
+    ///
+    /// Optional: a member who may not see the organisation's billing is answered 403, and a plan
+    /// without a subscription may be answered 404. Neither says anything about the session or
+    /// the organisation, so this call's statuses skip `mapJSError`'s recovery: the page is not
+    /// reloaded and the organisation stays cached.
+    func fetchSubscriptionDetails() async throws -> SubscriptionDetails {
+        try await ensureReady()
+        let orgId = try await resolveOrgId()
+        let json = try await fetchJSONString("/api/organizations/\(orgId)/subscription_details", statusIsSessionSignal: false)
+        return try JSONDecoder().decode(SubscriptionDetails.self, from: Data(json.utf8))
+    }
+
     // MARK: - Private
 
     private func resolveOrgId() async throws -> String {
@@ -319,7 +332,10 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// The 30 s abort is the only timeout on this path: `callAsyncJavaScript` doesn't observe
     /// Swift task cancellation, so a stalled fetch would leave the poll suspended forever
     /// (`fetchTask?.cancel()` can't reach it). The abort surfaces as a network error.
-    private func fetchJSONString(_ path: String) async throws -> String {
+    ///
+    /// With `statusIsSessionSignal` false, an HTTP status is only an error
+    /// (`fetchSubscriptionDetails`); a challenge is about the page, and keeps its recovery either way.
+    private func fetchJSONString(_ path: String, statusIsSessionSignal: Bool = true) async throws -> String {
         let result: Any?
         do {
             result = try await webView.callAsyncJavaScript(
@@ -333,6 +349,10 @@ final class ClaudeAPIService: NSObject, WKNavigationDelegate, WKUIDelegate {
                 contentWorld: .defaultClient
             )
         } catch {
+            let message = jsExceptionMessage(error)
+            if !statusIsSessionSignal, ![FetchFailure.challenge, .network].contains(FetchFailure(message: message)) {
+                throw APIError.httpError(message)
+            }
             throw mapJSError(error)
         }
         guard let json = result as? String else { throw APIError.invalidResponse }

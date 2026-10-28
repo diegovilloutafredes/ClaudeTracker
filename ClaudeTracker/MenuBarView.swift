@@ -318,6 +318,9 @@ struct MenuBarView: View {
 
     private var footer: some View {
         HStack {
+            if let event = viewModel.activePlanEvent {
+                planEventLine(event)
+            }
             Spacer()
             Button {
                 openSettings()
@@ -344,5 +347,21 @@ struct MenuBarView: View {
             .buttonStyle(.link)
             .font(sf(11))
         }
+    }
+
+    /// The active account's next billing event (CT-010): "Renews Nov 19", or "Ends Nov 19" for a
+    /// plan that will not renew. Cut short rather than pushing the links.
+    private func planEventLine(_ event: PlanEvent) -> some View {
+        Group {
+            switch event {
+            case .renews(let date):
+                Text("Renews \(planDateText(date, now: Date()))")
+            case .ends(let date):
+                Text("Ends \(planDateText(date, now: Date()))")
+            }
+        }
+        .font(sf(11))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
     }
 }
