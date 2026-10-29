@@ -107,6 +107,13 @@ extension UsageViewModel {
     /// deleted by the launch-time orphan sweep.
     private func purgeAccountStorage(id: UUID, dataStoreID: UUID, context: String) {
         UserDefaults.standard.removeObject(forKey: AccountStore.usageHistoryKey(for: id))
+        removeDataStore(dataStoreID, context: context)
+    }
+
+    /// Deletes a `WKWebsiteDataStore`, once more a few seconds later if a live web view refused
+    /// it. Alone (not through `purgeAccountStorage`) when the account stays and only its old
+    /// session goes (`adoptSession`).
+    private func removeDataStore(_ dataStoreID: UUID, context: String) {
         WKWebsiteDataStore.remove(forIdentifier: dataStoreID) { err in
             guard err != nil else { return }
             Task { @MainActor in
@@ -203,12 +210,55 @@ extension UsageViewModel {
         do {
             let info = try await svc.fetchAccountInfo()
             guard !Task.isCancelled else { return }
+            // Who signed in is only known now. If that account was already here, its row
+            // takes the new session and the row made for this sign-in goes (CT-003).
+            if let merge = mergeDuplicate(roster: accounts, signedInID: id, email: info.emailAddress) {
+                adoptSession(addedID: id, merge: merge, info: info)
+                return
+            }
             statesByAccount[id, default: .init()].accountInfo = info
             applyAccountInfoToRoster(id: id, info: info)
         } catch {
             // A switch cancels the session task (and tears the service down): not a failure.
             if !Task.isCancelled { AppLogger.shared.error("account info fetch failed: \(error.localizedDescription)") }
         }
+    }
+
+    /// Applies a `DuplicateMerge` (CT-003): the account that was already here keeps its row, its
+    /// name and its history, and polls from the session just made; the row added for the sign-in
+    /// goes without its store being purged (the kept row owns it now), and the store the kept
+    /// row had before is deleted.
+    private func adoptSession(addedID: UUID, merge: DuplicateMerge, info: AccountInfo) {
+        let keptID = merge.kept.id
+        AppLogger.shared.info("account \(addedID.uuidString.prefix(8)) is \(keptID.uuidString.prefix(8)), "
+                              + "signed in again: kept that row and gave it the new session")
+        // Either row may be the active one: the added one normally, the kept one if the user
+        // switched back before this answer arrived. Both mean a service on a store that is
+        // changing hands or going away, so it is torn down before anything else.
+        let restart = activeAccountID == addedID || activeAccountID == keptID
+        if restart {
+            cancelInFlightWork()
+            apiService?.tearDown()
+            apiService = nil
+        }
+        dismissPaceToasts(for: addedID)
+        accounts = merge.roster
+        AccountStore.saveAccounts(accounts)
+        UserDefaults.standard.removeObject(forKey: AccountStore.usageHistoryKey(for: addedID))
+        statesByAccount.removeValue(forKey: addedID)
+        var state = statesByAccount[keptID] ?? AccountState()
+        state.accountInfo = info
+        state.error = nil
+        state.sessionExpired = false
+        state.consecutive401s = 0
+        state.consecutiveErrors = 0
+        statesByAccount[keptID] = state
+        applyAccountInfoToRoster(id: keptID, info: info)
+        accountBeforePendingAdd = nil
+        // Only now: no web view is left on the old store.
+        removeDataStore(merge.abandonedDataStore, context: "replaced")
+        if restart { activate(merge.kept) }
+        showNotice(String(localized: "That account was already here. Its sign-in has been refreshed."))
     }
 
     /// Re-fetches account info after a successful poll while it is still missing — at most every

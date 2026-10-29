@@ -879,6 +879,43 @@ func orphanedDataStoreIDs(existing: [UUID], roster: [Account]) -> [UUID] {
     return existing.filter { !owned.contains($0) }
 }
 
+/// What a roster becomes when a sign-in turns out to be an account it already had (CT-003).
+struct DuplicateMerge: Equatable, Sendable {
+    /// The roster without the row that was added for the sign-in.
+    let roster: [Account]
+    /// The row that was already there, now holding the new session's data store.
+    let kept: Account
+    /// The data store that row had before — the session it gave up — to be deleted.
+    let abandonedDataStore: UUID
+}
+
+/// Finds out whether the row that just signed in is an account the roster already had, and if
+/// so what the roster becomes. Nil when it is not: nothing to do.
+///
+/// Two rows are the same account when their email is the same, whatever its letter case or
+/// surrounding spaces — which is all a sign-in is told apart by. The question is asked once
+/// per row, when its email is first learned (`email` comes from the account profile fetched
+/// after sign-in); a row that already knew its email has merely been signed in again.
+///
+/// The row that was already there wins. It keeps its id, and with it its name and its chart
+/// history, and takes over the data store of the row that just signed in: the session made a
+/// moment ago, certainly valid, where its own may have expired. The new row disappears.
+func mergeDuplicate(roster: [Account], signedInID: UUID, email: String?) -> DuplicateMerge? {
+    guard let email = email?.trimmingCharacters(in: .whitespacesAndNewlines), !email.isEmpty,
+          let signedIn = roster.first(where: { $0.id == signedInID }), signedIn.email == nil,
+          let existing = roster.first(where: {
+              $0.id != signedInID
+                  && $0.email?.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(email) == ComparisonResult.orderedSame
+          }) else { return nil }
+    let kept = Account(id: existing.id, label: existing.label, email: existing.email,
+                       subscriptionLabel: existing.subscriptionLabel, orgName: existing.orgName,
+                       dataStoreIdentifier: signedIn.dataStoreIdentifier, addedAt: existing.addedAt,
+                       pending: existing.pending)
+    return DuplicateMerge(roster: roster.filter { $0.id != signedInID }.map { $0.id == existing.id ? kept : $0 },
+                          kept: kept,
+                          abandonedDataStore: existing.dataStoreIdentifier)
+}
+
 /// A newer version discovered via the GitHub Releases API.
 struct UpdateInfo: Sendable {
     let version: String
