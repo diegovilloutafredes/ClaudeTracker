@@ -650,6 +650,56 @@ final class PureLogicTests: XCTestCase {
         XCTAssertEqual(orphanedDataStoreIDs(existing: [], roster: [owned]), [])
     }
 
+    // MARK: - An account that is already there (CT-003)
+
+    private func row(_ label: String, _ email: String?, plan: String = "Pro") -> Account {
+        Account(label: label, email: email, subscriptionLabel: email == nil ? nil : plan)
+    }
+
+    func testSigningInAnAccountThatIsAlreadyThereKeepsItsRowAndGivesItTheNewSession() throws {
+        let work = row("Work", "ana@company.com", plan: "Team")
+        let home = row("Home", "ana@example.com")
+        let added = row("Claude account", nil)
+
+        let merge = try XCTUnwrap(mergeDuplicate(roster: [work, home, added], signedInID: added.id, email: "  Ana@Example.com "))
+
+        // Its own name, id, plan and place in the list — only the session is the new one.
+        let expected = Account(id: home.id, label: home.label, email: home.email, subscriptionLabel: home.subscriptionLabel,
+                               dataStoreIdentifier: added.dataStoreIdentifier, addedAt: home.addedAt)
+        XCTAssertEqual(merge.kept, expected)
+        XCTAssertEqual(merge.roster, [work, merge.kept])
+        XCTAssertEqual(merge.abandonedDataStore, home.dataStoreIdentifier)
+        XCTAssertNotEqual(merge.kept.dataStoreIdentifier, merge.abandonedDataStore)
+    }
+
+    func testANewAccountIsNotMergedIntoAnything() {
+        let home = row("Home", "ana@example.com")
+        let added = row("Claude account", nil)
+        XCTAssertNil(mergeDuplicate(roster: [home, added], signedInID: added.id, email: "bruno@example.com"))
+        XCTAssertNil(mergeDuplicate(roster: [added], signedInID: added.id, email: "ana@example.com"))
+    }
+
+    func testSigningAnAccountBackInIsNotAMerge() {
+        // Two rows that already share an email (made before the rule existed): signing one of
+        // them in again must not make the other swallow it.
+        let first = row("First", "ana@example.com")
+        let second = row("Second", "ana@example.com")
+        XCTAssertNil(mergeDuplicate(roster: [first, second], signedInID: second.id, email: "ana@example.com"))
+    }
+
+    func testWithoutAnEmailThereIsNothingToCompare() {
+        let home = row("Home", "ana@example.com")
+        let added = row("Claude account", nil)
+        for email in [nil, "", "   "] as [String?] {
+            XCTAssertNil(mergeDuplicate(roster: [home, added], signedInID: added.id, email: email))
+        }
+    }
+
+    func testARowThatIsNotInTheRosterMergesNothing() {
+        let home = row("Home", "ana@example.com")
+        XCTAssertNil(mergeDuplicate(roster: [home], signedInID: UUID(), email: "ana@example.com"))
+    }
+
     // MARK: - FetchFailure
 
     /// A Cloudflare-challenged fetch must never read as an auth failure: two of them in a

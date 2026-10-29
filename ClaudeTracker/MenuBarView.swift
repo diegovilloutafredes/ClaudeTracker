@@ -21,6 +21,13 @@ struct MenuBarView: View {
             if let update = viewModel.updates.availableUpdate {
                 updateBanner(update)
             }
+            // What the app just did on its own (CT-003), for half a minute; on both tabs.
+            if let notice = viewModel.notice {
+                Text(notice)
+                    .font(sf(11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if viewModel.isAuthenticated && viewModel.showChartsTab {
                 tabSelector
             }

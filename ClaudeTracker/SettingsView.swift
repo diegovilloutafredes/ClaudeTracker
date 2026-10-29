@@ -77,7 +77,12 @@ struct SettingsView: View {
                 }
             }
 
-            if let error = viewModel.error {
+            // A notice (CT-003) takes the error's place for its half minute, in the neutral colour.
+            if let notice = viewModel.notice {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if let error = viewModel.error {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.orange)

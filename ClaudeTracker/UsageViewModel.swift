@@ -184,6 +184,21 @@ final class UsageViewModel {
     /// The account that was active before `addAccount` switched to a fresh placeholder, so
     /// cancelling that sign-in returns there instead of to whichever account is first.
     @ObservationIgnored var accountBeforePendingAdd: UUID?
+    /// A sentence telling the user what the app just did on its own (CT-003), shown for half a
+    /// minute in the popover and where Settings shows an error. Not an error: nothing is wrong
+    /// and nothing is asked.
+    var notice: String?
+    @ObservationIgnored private var noticeTask: Task<Void, Never>?
+
+    func showNotice(_ text: String) {
+        noticeTask?.cancel()
+        notice = text
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
+    }
     /// Avoids rebuilding `menuBarImage` when neither the icon name nor the status text has
     /// changed. Internal so the `UsageViewModelMenuBar.swift` extension can read/write.
     /// `@ObservationIgnored` is mandatory: the `menuBarImage` getter runs inside the
