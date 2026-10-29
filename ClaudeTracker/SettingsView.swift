@@ -259,8 +259,16 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                 Spacer()
-                Link("Download", destination: update.releaseURL)
-                    .font(.caption)
+                // "Install" tries again. Only a release whose signature was refused, which
+                // another try cannot help, is left to the release page.
+                if update.downloadURL != nil {
+                    Button("Install") { viewModel.updates.downloadAndInstall() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                } else {
+                    Link("Download", destination: update.releaseURL)
+                        .font(.caption)
+                }
             }
         }
     }
