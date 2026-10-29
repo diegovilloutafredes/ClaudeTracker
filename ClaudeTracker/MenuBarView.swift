@@ -80,7 +80,16 @@ struct MenuBarView: View {
                         Text("Installing…").foregroundStyle(.secondary)
                     }
                 case .failed:
-                    Link("Download", destination: update.releaseURL)
+                    // "Install" tries again. Only a release whose signature was refused, which
+                    // another try cannot help, is left to the release page.
+                    if update.downloadURL != nil {
+                        Button("Install") { viewModel.updates.downloadAndInstall() }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .tint(.green)
+                    } else {
+                        Link("Download", destination: update.releaseURL)
+                    }
                 }
             }
             .font(sf(11))

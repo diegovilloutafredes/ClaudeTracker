@@ -134,16 +134,25 @@ func installDestination(runningBundle: URL, fallback: URL) -> URL {
     FileManager.default.isWritableFile(atPath: runningBundle.deletingLastPathComponent().path) ? runningBundle : fallback
 }
 
-/// Failed installs of one release that auto-install tolerates before it stops retrying.
+/// Automatic installs of one release that auto-install sets off before it stops trying it by
+/// itself. Counted when they start, so one that is cut short counts too.
 let maxAutoInstallAttempts = 3
 
-/// The failure count after one more failed install of `version`, given the persisted
-/// record: counting restarts when a different release fails.
+/// The count after one more automatic install of `version` is set off, given the persisted
+/// record: counting restarts when a different release is tried. (The name is from when the
+/// count was of failures.)
 func installFailureCount(version: String, failedVersion: String, previousCount: Int) -> Int {
     (version == failedVersion ? previousCount : 0) + 1
 }
 
-/// Whether the next update check should retry the install automatically. Past the cap a
+/// How many automatic installs of `version` have been set off, from the saved record. The
+/// record holds one release at a time: another release starts from nothing, or three tries of
+/// one release would keep every later one from installing itself.
+func installAttempts(version: String, attemptedVersion: String, attemptedCount: Int) -> Int {
+    version == attemptedVersion ? max(attemptedCount, 0) : 0
+}
+
+/// Whether the next update check should start the install again by itself. Past the cap a
 /// failure is treated as permanent (e.g. an unwritable destination): retrying would show a
 /// toast and redownload on every check and wake, forever.
 func shouldRetryAutoInstall(failures: Int) -> Bool {
@@ -180,9 +189,14 @@ final class UpdateService {
     }
 
     @ObservationIgnored private var updateCheckTask: Task<Void, Never>?
+    /// The release last announced for an install by hand: a toast says so once per version.
     @ObservationIgnored private var lastNotifiedUpdateVersion: String = ""
-    @ObservationIgnored private var failedInstallVersion: String = ""
-    @ObservationIgnored private var failedInstallCount = 0
+    /// The release whose automatic install was last set off, and how many times. Saved under
+    /// `PrefKey.failedInstallVersion`/`failedInstallCount`, names from when failures were counted.
+    @ObservationIgnored private var attemptedInstallVersion: String = ""
+    @ObservationIgnored private var attemptedInstallCount = 0
+    /// True during the ten seconds between announcing an automatic install and starting it.
+    @ObservationIgnored private var countingDown = false
     /// The release whose signature failed verification this session (`installableUpdate`).
     @ObservationIgnored private var signatureRejectedVersion: String?
     /// Adaptive check interval (seconds), computed from release cadence. Clamped 4h–24h.
@@ -202,8 +216,8 @@ final class UpdateService {
     /// bare `UsageViewModel()`/`UpdateService()` in a test does not hit the network.
     func start() {
         lastNotifiedUpdateVersion = UserDefaults.standard.string(forKey: PrefKey.lastNotifiedUpdateVersion) ?? ""
-        failedInstallVersion = UserDefaults.standard.string(forKey: PrefKey.failedInstallVersion) ?? ""
-        failedInstallCount = UserDefaults.standard.integer(forKey: PrefKey.failedInstallCount)
+        attemptedInstallVersion = UserDefaults.standard.string(forKey: PrefKey.failedInstallVersion) ?? ""
+        attemptedInstallCount = UserDefaults.standard.integer(forKey: PrefKey.failedInstallCount)
         let savedCheckInterval = UserDefaults.standard.double(forKey: PrefKey.updateCheckInterval)
         if savedCheckInterval >= 4 * 3600 { nextCheckInterval = savedCheckInterval }
         // Set autoUpdate last so its didSet fires with nextCheckInterval already correct.
@@ -243,23 +257,10 @@ final class UpdateService {
 
             if let update = update.map({ installableUpdate($0, signatureRejectedVersion: signatureRejectedVersion) }) {
                 availableUpdate = update
-
-                // Only notify once per discovered version (persisted across restarts)
-                if lastNotifiedUpdateVersion != update.version {
-                    lastNotifiedUpdateVersion = update.version
-                    UserDefaults.standard.set(update.version, forKey: PrefKey.lastNotifiedUpdateVersion)
-                    if autoUpdate, update.downloadURL != nil {
-                        if case .idle = updateDownloadState { triggerAutoInstall() }
-                    } else {
-                        ToastWindowController.shared.show(
-                            title: String(localized: "Update available"),
-                            message: String(format: String(localized: "v%@ is ready — open Settings to install"), update.version),
-                            icon: "arrow.up.circle.fill",
-                            iconColor: .green,
-                            duration: 12,
-                            permanent: false
-                        )
-                    }
+                if shouldAutoInstall(update) {
+                    if case .idle = updateDownloadState, !countingDown { triggerAutoInstall(update) }
+                } else if !isBusy {
+                    announce(update)
                 }
             }
 
@@ -290,8 +291,50 @@ final class UpdateService {
         }
     }
 
-    private func triggerAutoInstall() {
-        guard let update = availableUpdate, update.downloadURL != nil else { return }
+    /// True while a download or an install is under way.
+    private var isBusy: Bool {
+        switch updateDownloadState {
+        case .downloading, .installing: return true
+        case .idle, .failed: return false
+        }
+    }
+
+    /// Whether a check sets the update's install off by itself: auto-install is on, the release
+    /// can be installed in-app, and it has not already been started `maxAutoInstallAttempts` times.
+    private func shouldAutoInstall(_ update: UpdateInfo) -> Bool {
+        let attempts = installAttempts(version: update.version, attemptedVersion: attemptedInstallVersion,
+                                       attemptedCount: attemptedInstallCount)
+        return autoUpdate && update.downloadURL != nil && shouldRetryAutoInstall(failures: attempts)
+    }
+
+    /// Says, once per version and across restarts, that an update is there to be installed by hand.
+    private func announce(_ update: UpdateInfo) {
+        guard lastNotifiedUpdateVersion != update.version else { return }
+        lastNotifiedUpdateVersion = update.version
+        UserDefaults.standard.set(update.version, forKey: PrefKey.lastNotifiedUpdateVersion)
+        AppLogger.shared.info("update: v\(update.version) is available" + (update.downloadURL == nil ? " (as a download only)" : ""))
+        ToastWindowController.shared.show(
+            title: String(localized: "Update available"),
+            message: String(format: String(localized: "v%@ is ready — open Settings to install"), update.version),
+            icon: "arrow.up.circle.fill",
+            iconColor: .green,
+            duration: 12,
+            permanent: false
+        )
+    }
+
+    /// Counted before it starts, and saved before it is counted on. Counted only when it failed,
+    /// an install that never got to fail — the Mac shut down, the app quit during the countdown
+    /// or the download — was never tried again, because the version was already marked as
+    /// announced. Switching auto-install off during the countdown still uses up one of the three.
+    private func triggerAutoInstall(_ update: UpdateInfo) {
+        let attempt = installFailureCount(version: update.version, failedVersion: attemptedInstallVersion,
+                                          previousCount: attemptedInstallCount)
+        attemptedInstallVersion = update.version
+        attemptedInstallCount = attempt
+        UserDefaults.standard.set(update.version, forKey: PrefKey.failedInstallVersion)
+        UserDefaults.standard.set(attempt, forKey: PrefKey.failedInstallCount)
+        AppLogger.shared.info("update: v\(update.version) is available; installing it (automatic attempt \(attempt) of \(maxAutoInstallAttempts))")
         let msg = String(format: String(localized: "v%@ found — installing in ~10s"), update.version)
         ToastWindowController.shared.show(
             title: String(localized: "Update available"),
@@ -301,18 +344,22 @@ final class UpdateService {
             duration: 12,
             permanent: false
         )
+        countingDown = true
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(10))
             // Re-check: the user may have flipped auto-install off during the countdown.
-            guard let self, self.autoUpdate else { return }
-            self.downloadAndInstall()
+            guard let self else { return }
+            self.countingDown = false
+            guard self.autoUpdate else { return }
+            self.downloadAndInstall(automatic: true)
         }
     }
 
-    func downloadAndInstall() {
+    /// Downloads, verifies and installs `availableUpdate`. `automatic` is for the log: a try by
+    /// hand ("Install", also after a failure) is not one of the three automatic ones.
+    func downloadAndInstall(automatic: Bool = false) {
         guard let update = availableUpdate, let downloadURL = update.downloadURL,
-              let signatureURL = update.signatureURL else { return }
-        guard case .idle = updateDownloadState else { return }
+              let signatureURL = update.signatureURL, !isBusy else { return }
         updateDownloadState = .downloading
 
         let tmpBase = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -428,28 +475,23 @@ final class UpdateService {
                     signatureRejectedVersion = update.version
                     availableUpdate = installableUpdate(update, signatureRejectedVersion: update.version)
                 }
-                recordInstallFailure(version: update.version, error: error)
+                recordInstallFailure(version: update.version, error: error, automatic: automatic)
             }
         }
     }
 
-    /// Un-marks the version as notified so the next periodic/wake check retries the install
-    /// — one transient failure must not degrade the release to "find the Install button in
-    /// Settings". After `maxAutoInstallAttempts` failures of the same release the version stays
-    /// marked, so retries stop, and one toast points at the manual path instead.
-    private func recordInstallFailure(version: String, error: Error) {
-        let failures = installFailureCount(version: version, failedVersion: failedInstallVersion,
-                                           previousCount: failedInstallCount)
-        failedInstallVersion = version
-        failedInstallCount = failures
-        UserDefaults.standard.set(version, forKey: PrefKey.failedInstallVersion)
-        UserDefaults.standard.set(failures, forKey: PrefKey.failedInstallCount)
-        AppLogger.shared.error("auto-update failed (v\(version), #\(failures)): \(error)")
-
-        if shouldRetryAutoInstall(failures: failures) {
-            lastNotifiedUpdateVersion = ""
-            UserDefaults.standard.removeObject(forKey: PrefKey.lastNotifiedUpdateVersion)
-        } else if failures == maxAutoInstallAttempts {
+    /// Logs an install that failed. An automatic one was counted when it was set off, so the
+    /// next check starts it again while it is under `maxAutoInstallAttempts`. When it was the
+    /// last one this release is allowed, one toast points at the manual way and stands as the
+    /// announcement, so later checks add nothing to it.
+    private func recordInstallFailure(version: String, error: Error, automatic: Bool) {
+        let attempts = installAttempts(version: version, attemptedVersion: attemptedInstallVersion,
+                                       attemptedCount: attemptedInstallCount)
+        let which = automatic ? "automatic attempt \(attempts) of \(maxAutoInstallAttempts)" : "asked for by hand"
+        AppLogger.shared.error("update failed (v\(version), \(which)): \(error)")
+        if automatic, !shouldRetryAutoInstall(failures: attempts) {
+            lastNotifiedUpdateVersion = version
+            UserDefaults.standard.set(version, forKey: PrefKey.lastNotifiedUpdateVersion)
             ToastWindowController.shared.show(
                 title: String(localized: "Update failed"),
                 message: String(format: String(localized: "Couldn't install v%@ automatically — open Settings to install it"), version),

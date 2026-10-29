@@ -1005,4 +1005,18 @@ final class AtomicInstallTests: XCTestCase {
         XCTAssertTrue(shouldRetryAutoInstall(failures: maxAutoInstallAttempts - 1))
         XCTAssertFalse(shouldRetryAutoInstall(failures: maxAutoInstallAttempts))
     }
+
+    func testAutomaticInstallsAreCountedPerReleaseAndStopAtThree() {
+        // Nothing saved, or what is saved is about another release: this one starts from nothing.
+        XCTAssertEqual(installAttempts(version: "1.3.0", attemptedVersion: "", attemptedCount: 0), 0)
+        XCTAssertEqual(installAttempts(version: "1.3.0", attemptedVersion: "1.2.0", attemptedCount: 3), 0)
+        XCTAssertEqual(installAttempts(version: "1.3.0", attemptedVersion: "1.3.0", attemptedCount: 2), 2)
+        XCTAssertEqual(installAttempts(version: "1.3.0", attemptedVersion: "1.3.0", attemptedCount: -4), 0)
+
+        // An install cut short is started again by the next check, three times in all — and
+        // three tries of one release do not hold back the next.
+        XCTAssertTrue(shouldRetryAutoInstall(failures: installAttempts(version: "1.3.0", attemptedVersion: "1.3.0", attemptedCount: 2)))
+        XCTAssertFalse(shouldRetryAutoInstall(failures: installAttempts(version: "1.3.0", attemptedVersion: "1.3.0", attemptedCount: 3)))
+        XCTAssertTrue(shouldRetryAutoInstall(failures: installAttempts(version: "1.4.0", attemptedVersion: "1.3.0", attemptedCount: 3)))
+    }
 }
