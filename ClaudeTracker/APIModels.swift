@@ -301,6 +301,13 @@ func breakdownSignature(_ r: UsageResponse) -> String {
         .joined(separator: ",")
 }
 
+/// Log signature of the plan's subscription details (CT-010), logged once per change:
+/// `status=active interval=monthly next=2026-11-20T01:12:40Z ends=nil`. The raw strings, so a
+/// time in a format the parser refuses still shows in the log.
+func subscriptionSignature(_ s: SubscriptionDetails) -> String {
+    "status=\(s.status ?? "nil") interval=\(s.billingInterval ?? "nil") next=\(s.nextChargeAt ?? "nil") ends=\(s.planEndingAt ?? "nil")"
+}
+
 /// The `scope` object of a `weekly_scoped` limit entry.
 struct UsageLimitScope: Codable, Sendable {
     let model: UsageLimitModel?
@@ -402,14 +409,9 @@ struct UsageWindow: Codable, Sendable {
         lockedReason = (try? c.decodeIfPresent(String.self, forKey: .lockedReason)) ?? nil
     }
 
-    /// Parses `resetsAt` into a `Date`.
-    ///
-    /// The API returns timestamps both with and without fractional seconds depending on the
-    /// server — two formatters are tried in order to handle both forms.
+    /// Parses `resetsAt` into a `Date`, with or without fractional seconds (`IsoDate`).
     var resetsAtDate: Date? {
-        guard let resetsAt else { return nil }
-        return Self.formatterWithFractional.date(from: resetsAt)
-            ?? Self.formatterWithout.date(from: resetsAt)
+        IsoDate.parse(resetsAt)
     }
 
     /// Utilization clamped to `[0, 1]` for use with `ProgressView`.
@@ -420,6 +422,16 @@ struct UsageWindow: Codable, Sendable {
     /// Continuous urgency gradient: green (low) → yellow → orange → red (high).
     var utilizationColor: Color {
         urgencyColor(utilization / 100.0)
+    }
+}
+
+/// The API's timestamps: ISO 8601 with a zone. The API returns them both with and without
+/// fractional seconds depending on the server, so two formatters are tried in order.
+enum IsoDate {
+    /// Nil for nil, and for text in neither form.
+    static func parse(_ text: String?) -> Date? {
+        guard let text else { return nil }
+        return formatterWithFractional.date(from: text) ?? formatterWithout.date(from: text)
     }
 
     // ISO8601DateFormatter is documented thread-safe; `nonisolated(unsafe)` only papers
@@ -546,5 +558,42 @@ struct AccountOrganization: Codable, Sendable {
         case capabilities
         case rateLimitTier = "rate_limit_tier"
         case ravenType = "raven_type"
+    }
+}
+
+/// The plan's billing state, from `/api/organizations/{uuid}/subscription_details` (CT-010).
+/// Every field is lenient: a missing, null or wrong-typed value reads as nil. The payment
+/// method in the same payload is never decoded.
+struct SubscriptionDetails: Decodable, Sendable {
+    /// "active" seen. Logged, not interpreted.
+    let status: String?
+    /// "monthly" seen. Logged only.
+    let billingInterval: String?
+    /// ISO 8601 time of the next charge, e.g. `2026-11-20T01:12:40Z`.
+    let nextChargeAt: String?
+    /// When a plan that will not renew runs out. Nil on an active plan; taken to be in
+    /// `nextChargeAt`'s format.
+    let planEndingAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case billingInterval = "billing_interval"
+        case nextChargeAt = "next_charge_at"
+        case planEndingAt = "plan_ending_at"
+    }
+
+    var nextChargeAtDate: Date? { IsoDate.parse(nextChargeAt) }
+
+    var planEndingAtDate: Date? { IsoDate.parse(planEndingAt) }
+}
+
+extension SubscriptionDetails {
+    /// Per-field lenient decode, in an extension so the memberwise initializer stays.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? nil
+        billingInterval = (try? c.decodeIfPresent(String.self, forKey: .billingInterval)) ?? nil
+        nextChargeAt = (try? c.decodeIfPresent(String.self, forKey: .nextChargeAt)) ?? nil
+        planEndingAt = (try? c.decodeIfPresent(String.self, forKey: .planEndingAt)) ?? nil
     }
 }

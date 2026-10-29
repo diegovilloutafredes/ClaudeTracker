@@ -571,6 +571,33 @@ final class APIFixtureTests: XCTestCase {
         XCTAssertNil(r.limits)
     }
 
+    // MARK: - subscription_details (CT-010)
+
+    func testSubscriptionPayloadGivesTheNextCharge() throws {
+        let details = try decode(SubscriptionDetails.self, livePayload("live-subscription-details-2026-10-28.json"))
+        XCTAssertEqual(details.status, "active")
+        XCTAssertEqual(details.billingInterval, "monthly")
+        XCTAssertEqual(details.nextChargeAt, "2026-11-20T01:12:40Z")
+        XCTAssertEqual(details.nextChargeAtDate, Date(timeIntervalSince1970: 1_795_137_160))
+        XCTAssertNil(details.planEndingAt)
+        XCTAssertEqual(subscriptionSignature(details), "status=active interval=monthly next=2026-11-20T01:12:40Z ends=nil")
+    }
+
+    func testSubscriptionFieldsOfTheWrongTypeReadAsNil() throws {
+        let json = """
+        {"status": 1, "billing_interval": null, "next_charge_at": false, "plan_ending_at": "2026-12-01T00:00:00Z"}
+        """
+        let details = try decode(SubscriptionDetails.self, json)
+        XCTAssertNil(details.status)
+        XCTAssertNil(details.billingInterval)
+        XCTAssertNil(details.nextChargeAt)
+        XCTAssertEqual(details.planEndingAt, "2026-12-01T00:00:00Z")
+    }
+
+    func testSubscriptionPayloadThatIsNotAnObjectFailsToDecode() {
+        XCTAssertThrowsError(try decode(SubscriptionDetails.self, "[]"))
+    }
+
     // MARK: - AccountInfo
 
     func testAccountInfoDecodesMembershipsAndTier() throws {

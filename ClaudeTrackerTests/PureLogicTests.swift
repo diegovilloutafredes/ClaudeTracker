@@ -794,6 +794,57 @@ final class PureLogicTests: XCTestCase {
         XCTAssertEqual(pinnedHourCycleLocale(use24Hour: false, base: Locale(identifier: "de_DE")).hourCycle,
                        .oneToTwelve)
     }
+
+    // MARK: - Next billing date (CT-010)
+
+    /// The fixture's next charge, 2026-11-20T01:12:40Z: past midnight UTC, the day before in UTC−3.
+    private let nextCharge = Date(timeIntervalSince1970: 1_795_137_160)
+
+    private func calendar(hoursFromGMT hours: Int) -> Calendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: hours * 3600)!
+        return cal
+    }
+
+    func testPlanDateTextIsTheReadersLocalDay() {
+        let now = nextCharge.addingTimeInterval(-10 * 86_400)
+        XCTAssertEqual(planDateText(nextCharge, now: now, calendar: calendar(hoursFromGMT: -3), locale: enUS), "Nov 19")
+        XCTAssertEqual(planDateText(nextCharge, now: now, calendar: calendar(hoursFromGMT: 0), locale: enUS), "Nov 20")
+    }
+
+    func testPlanDateTextAddsTheYearWhenItIsNotThisYears() {
+        let nextYear = Date(timeIntervalSince1970: 1_799_150_400)  // 2027-01-05T12:00:00Z
+        XCTAssertEqual(planDateText(nextYear, now: nextCharge, calendar: calendar(hoursFromGMT: 0), locale: enUS), "Jan 5, 2027")
+    }
+
+    func testUpcomingPlanEventPrefersTheEndOfAPlanThatWillNotRenew() {
+        let now = nextCharge.addingTimeInterval(-10 * 86_400)
+        let renewing = SubscriptionDetails(status: "active", billingInterval: "monthly",
+                                           nextChargeAt: "2026-11-20T01:12:40Z", planEndingAt: nil)
+        XCTAssertEqual(upcomingPlanEvent(renewing, now: now), PlanEvent.renews(nextCharge))
+        let ending = SubscriptionDetails(status: "active", billingInterval: "monthly",
+                                         nextChargeAt: "2026-11-20T01:12:40Z", planEndingAt: "2026-11-25T00:00:00Z")
+        XCTAssertEqual(upcomingPlanEvent(ending, now: now), PlanEvent.ends(Date(timeIntervalSince1970: 1_795_564_800)))
+    }
+
+    func testUpcomingPlanEventShowsNothingThatHasPassed() {
+        let renewing = SubscriptionDetails(status: "active", billingInterval: "monthly",
+                                           nextChargeAt: "2026-11-20T01:12:40Z", planEndingAt: nil)
+        XCTAssertNil(upcomingPlanEvent(renewing, now: nextCharge))
+        let ended = SubscriptionDetails(status: "canceled", billingInterval: "monthly",
+                                        nextChargeAt: nil, planEndingAt: "2026-11-01T00:00:00Z")
+        XCTAssertNil(upcomingPlanEvent(ended, now: nextCharge))
+        XCTAssertNil(upcomingPlanEvent(nil, now: nextCharge))
+        let unreadable = SubscriptionDetails(status: nil, billingInterval: nil, nextChargeAt: "not a date", planEndingAt: nil)
+        XCTAssertNil(upcomingPlanEvent(unreadable, now: nextCharge.addingTimeInterval(-86_400)))
+    }
+
+    func testSubscriptionRefreshIsDueFirstAndEverySixHours() {
+        let now = nextCharge
+        XCTAssertTrue(subscriptionRefreshDue(lastAttempt: nil, now: now))
+        XCTAssertFalse(subscriptionRefreshDue(lastAttempt: now, now: now.addingTimeInterval(6 * 3600 - 1)))
+        XCTAssertTrue(subscriptionRefreshDue(lastAttempt: now, now: now.addingTimeInterval(6 * 3600)))
+    }
 }
 
 /// Filesystem tests for the atomic install swap, using real temp directories.
