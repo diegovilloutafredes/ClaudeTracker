@@ -41,9 +41,29 @@ if ! gh run watch "$run" --exit-status --interval 20 > /dev/null; then
   exit 1
 fi
 
+# The run must have built the commit that is tagged here, in this clone: a tag moved on
+# GitHub, or a run started from another commit, is not the release that was meant.
+tagged=$(git rev-parse --verify --quiet "$tag^{commit}") || {
+  echo "There is no tag $tag in this clone. Fetch it (git fetch origin tag $tag) and check that it is the commit you meant (git log -1 $tag)." >&2
+  exit 1
+}
+built_from=$(gh run view "$run" --json headSha -q .headSha)
+[ "$built_from" = "$tagged" ] || { echo "The Release workflow built $built_from, but $tag is $tagged in this clone." >&2; exit 1; }
+
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 gh release download "$tag" --pattern ClaudeTracker.zip --dir "$tmp"
+
+# The file on the draft must be the file that run built. The workflow prints the SHA-256 of
+# the zip it made (release.yml), and a finished run's log cannot be changed: a file put on
+# the draft afterwards does not match it.
+# (|| true: with no hash in the log the search fails, and the check below should say so.)
+built_hash=$(gh run view "$run" --log | grep -o 'sha256 [0-9a-f]\{64\}' | tail -1 | cut -d' ' -f2 || true)
+draft_hash=$(shasum -a 256 "$tmp/ClaudeTracker.zip" | cut -d' ' -f1)
+if [ -z "$built_hash" ] || [ "$built_hash" != "$draft_hash" ]; then
+  echo "The zip on the draft ($draft_hash) is not the file the workflow built (${built_hash:-no hash found in the log of the run})." >&2
+  exit 1
+fi
 
 # Sign only the build this version promises; the app re-checks the version after verifying.
 unzip -q "$tmp/ClaudeTracker.zip" -d "$tmp/contents"

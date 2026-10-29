@@ -111,6 +111,11 @@ jobs:
       - name: Create DMG and ZIP
         run: make dmg zip
 
+      # scripts/publish-release.sh signs only the zip this run built: it compares the draft's
+      # file with the SHA-256 printed here, which a finished run's log cannot have changed.
+      - name: Print the zip's SHA-256
+        run: echo "sha256 $(shasum -a 256 release/ClaudeTracker.zip | cut -d' ' -f1)"
+
       # ── Publish (as a draft) ────────────────────────────────────────────────
       # The update-signing key never leaves the maintainer's Keychain, so CI can't sign.
       # The app skips drafts; `make tag` (scripts/publish-release.sh) signs the zip,
