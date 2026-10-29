@@ -13,6 +13,8 @@ struct UsageWindowView: View {
     let use24Hour: Bool
     /// 7-day windows include month + day in the absolute reset time; 5-hour windows don't.
     let includeResetDate: Bool
+    /// A model-scoped limit's share of the weekly allowance (CT-011), said under the reset line.
+    var weeklyAllowance: Double?
     /// Urgency-colored text takes the legible variant for the current appearance.
     @Environment(\.colorScheme) private var colorScheme
 
@@ -47,6 +49,15 @@ struct UsageWindowView: View {
                 }
                 .font(sf(11))
                 .foregroundStyle(.secondary)
+            }
+
+            // How much of the weekly limit this model's own limit may use (CT-011). Whole, as
+            // the row's own percent; passed as text so the key needs no escaped "%".
+            if let allowance = weeklyAllowance {
+                let share = "\(Int(allowance))%"
+                Text("Up to \(share) of the weekly limit")
+                    .font(sf(11))
+                    .foregroundStyle(.secondary)
             }
 
             if let rate = paceRate {

@@ -59,10 +59,37 @@ struct UsageResponse: Codable, Sendable {
         self.sevenDayOpus = (try? c.decodeIfPresent(UsageWindow.self, forKey: .sevenDayOpus)) ?? nil
         self.sevenDaySonnet = (try? c.decodeIfPresent(UsageWindow.self, forKey: .sevenDaySonnet)) ?? nil
         self.extraUsage = (try? c.decodeIfPresent(ExtraUsage.self, forKey: .extraUsage)) ?? nil
+        // Each share names its limit by position in the raw array, so it is attached while that
+        // position is known: a malformed entry dropped before it must not shift it (CT-011).
+        let shares = Self.sharesByLimitIndex(from: decoder)
         self.limits = ((try? c.decodeIfPresent([FailableLimit].self, forKey: .limits)) ?? nil)
-            .map { $0.compactMap(\.limit) }
+            .map { entries in
+                entries.enumerated().compactMap { (index, entry) -> UsageLimit? in
+                    guard var limit = entry.limit else { return nil }
+                    limit.weeklyShare = shares[index]
+                    return limit
+                }
+            }
         self.spend = (try? c.decodeIfPresent(Spend.self, forKey: .spend)) ?? nil
         self.sevenDayBreakdown = (try? c.decodeIfPresent(SevenDayBreakdown.self, forKey: .sevenDayBreakdown)) ?? nil
+    }
+
+    /// `weekly_scoped_shares` by the position in the raw `limits` array each entry names; the
+    /// first entry for a position wins. Read through keys of its own: `CodingKeys` must name
+    /// only stored properties, or the synthesized `encode(to:)` would not compile.
+    private static func sharesByLimitIndex(from decoder: Decoder) -> [Int: WeeklyScopedShare] {
+        guard let c = try? decoder.container(keyedBy: ShareKeys.self),
+              let entries = (try? c.decodeIfPresent([FailableShare].self, forKey: .weeklyScopedShares)) ?? nil else { return [:] }
+        var result: [Int: WeeklyScopedShare] = [:]
+        for entry in entries {
+            guard let index = entry.limitIndex, let share = entry.share, result[index] == nil else { continue }
+            result[index] = share
+        }
+        return result
+    }
+
+    private enum ShareKeys: String, CodingKey {
+        case weeklyScopedShares = "weekly_scoped_shares"
     }
 
     /// The two built-in windows (5-hour, 7-day) that are present, in display order — the
@@ -87,7 +114,8 @@ struct UsageResponse: Codable, Sendable {
         }
         for scoped in scopedModelWindows {
             result.append(TrackedWindow(key: scoped.paceKey, title: TrackedWindow.title(forKey: scoped.paceKey),
-                                        window: scoped.window, isModelScoped: true))
+                                        window: scoped.window, isModelScoped: true,
+                                        weeklyAllowancePercent: scoped.weeklyAllowancePercent))
         }
         return result
     }
@@ -107,7 +135,8 @@ struct UsageResponse: Codable, Sendable {
                   let percent = limit.percent else { continue }
             if sevenDaySonnet != nil && label == "Sonnet" { continue }
             let window = ScopedModelWindow(label: label,
-                                           window: UsageWindow(utilization: percent, resetsAt: limit.resetsAt))
+                                           window: UsageWindow(utilization: percent, resetsAt: limit.resetsAt),
+                                           weeklyAllowancePercent: limit.weeklyShare?.allowancePercentOfWeekly)
             if let idx = indexByLabel[label] {
                 if percent > result[idx].window.utilization { result[idx] = window }
             } else {
@@ -133,6 +162,9 @@ struct UsageLimit: Codable, Sendable {
     /// running one is `false` — it is NOT "currently binding". Decoded for the severity
     /// log (included only alongside a non-"normal" severity), never displayed.
     let isActive: Bool?
+    /// Its entry in `weekly_scoped_shares`, attached by `UsageResponse` while decoding (CT-011).
+    /// Not one of this entry's own keys, so not in `CodingKeys`.
+    var weeklyShare: WeeklyScopedShare?
 
     enum CodingKeys: String, CodingKey {
         case kind, percent, scope, severity
@@ -301,6 +333,22 @@ func breakdownSignature(_ r: UsageResponse) -> String {
         .joined(separator: ",")
 }
 
+/// Log signature of the model-scoped limits' shares of the weekly allowance (CT-011), with each
+/// limit's own percent beside them: `Fable:allow=50,used=0,percent=0`. Only the allowance is
+/// shown; the log is where it can be learned whether `percent` is `used` over `allow` (all three
+/// were 0 when first seen). Sorted, so a reorder is no change. Empty when no limit has a share.
+func weeklySharesSignature(_ r: UsageResponse) -> String {
+    func whole(_ value: Double?) -> String { value.map { String(format: "%.0f", $0) } ?? "nil" }
+    return (r.limits ?? [])
+        .compactMap { limit -> String? in
+            guard let share = limit.weeklyShare else { return nil }
+            let name = limit.scope?.model?.displayName ?? limit.kind
+            return "\(name):allow=\(whole(share.allowancePercentOfWeekly)),used=\(whole(share.usedPercentOfWeekly)),percent=\(whole(limit.percent))"
+        }
+        .sorted()
+        .joined(separator: " ")
+}
+
 /// Log signature of the plan's subscription details (CT-010), logged once per change:
 /// `status=active interval=monthly next=2026-11-20T01:12:40Z ends=nil`. The raw strings, so a
 /// time in a format the parser refuses still shows in the log.
@@ -332,11 +380,47 @@ private struct FailableLimit: Decodable {
     }
 }
 
+/// How much of the overall weekly allowance a model-scoped weekly limit may use, and has used
+/// (`weekly_scoped_shares`, seen 2026-10-28; CT-011). Both fields are lenient.
+struct WeeklyScopedShare: Codable, Sendable, Equatable {
+    /// The model's use so far, as a share of the weekly allowance. Logged only.
+    let usedPercentOfWeekly: Double?
+    /// The most of the weekly allowance the model may use, e.g. 50. Shown on its row.
+    let allowancePercentOfWeekly: Double?
+}
+
+/// One `weekly_scoped_shares` entry and the position in the raw `limits` array it names. Never
+/// throws: an entry without a whole `limit_index` of 0 or more belongs to no limit (nil index).
+private struct FailableShare: Decodable {
+    let limitIndex: Int?
+    let share: WeeklyScopedShare?
+
+    enum CodingKeys: String, CodingKey {
+        case limitIndex = "limit_index"
+        case used = "used_percent_of_weekly"
+        case allowance = "allowance_percent_of_weekly"
+    }
+
+    init(from decoder: Decoder) {
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self),
+              let index = (try? c.decodeIfPresent(Int.self, forKey: .limitIndex)) ?? nil, index >= 0 else {
+            limitIndex = nil
+            share = nil
+            return
+        }
+        limitIndex = index
+        share = WeeklyScopedShare(usedPercentOfWeekly: (try? c.decodeIfPresent(Double.self, forKey: .used)) ?? nil,
+                                  allowancePercentOfWeekly: (try? c.decodeIfPresent(Double.self, forKey: .allowance)) ?? nil)
+    }
+}
+
 /// A model-scoped weekly limit surfaced as a displayable usage window.
 struct ScopedModelWindow: Sendable {
     /// The model's display name as reported by the API (e.g. "Fable").
     let label: String
     let window: UsageWindow
+    /// The most of the weekly allowance this model may use, when the API says (CT-011).
+    var weeklyAllowancePercent: Double?
     /// History-bucket key for pace tracking, distinct from the legacy window keys.
     var paceKey: String { "scoped." + label }
 }
@@ -354,6 +438,8 @@ struct TrackedWindow: Identifiable, Sendable {
     /// True for the legacy Sonnet sub-window and model-scoped limits: shown and alerted
     /// only under `showModelWindows`.
     let isModelScoped: Bool
+    /// A model-scoped limit's share of the weekly allowance, when the API says (CT-011).
+    var weeklyAllowancePercent: Double?
     var id: String { key }
     /// Every window but the 5-hour one spans a week.
     var isSevenDay: Bool { key != MenuBarWindow.fiveHour.rawValue }
