@@ -483,6 +483,11 @@ final class UsageViewModel {
         if !breakdown.isEmpty, breakdown != old.map(breakdownSignature) {
             AppLogger.shared.info("usage breakdown: \(breakdown)")
         }
+        // The shares' allowance is shown (CT-011); the rest is here to be learned from.
+        let shares = weeklySharesSignature(new)
+        if !shares.isEmpty, shares != old.map(weeklySharesSignature) {
+            AppLogger.shared.info("weekly shares: \(shares)")
+        }
     }
 
     /// Schedules the next poll after an adaptive delay derived from current utilization and pace.

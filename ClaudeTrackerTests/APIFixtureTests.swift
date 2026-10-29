@@ -598,6 +598,47 @@ final class APIFixtureTests: XCTestCase {
         XCTAssertThrowsError(try decode(SubscriptionDetails.self, "[]"))
     }
 
+    // MARK: - weekly_scoped_shares (CT-011)
+
+    func testLiveUsage20261028GivesFableItsShareOfTheWeeklyLimit() throws {
+        let r = try decode(UsageResponse.self, livePayload("live-usage-2026-10-28.json"))
+        XCTAssertEqual(r.scopedModelWindows.count, 1)
+        let fable = try XCTUnwrap(r.scopedModelWindows.first)
+        XCTAssertEqual(fable.label, "Fable")
+        XCTAssertEqual(fable.weeklyAllowancePercent, 50)
+        XCTAssertEqual(r.trackedWindows.first { $0.key == "scoped.Fable" }?.weeklyAllowancePercent, 50)
+        XCTAssertTrue(r.trackedWindows.filter { !$0.isModelScoped }.allSatisfy { $0.weeklyAllowancePercent == nil })
+        XCTAssertEqual(weeklySharesSignature(r), "Fable:allow=50,used=0,percent=0")
+        // The six new null keys and the null "pace" change nothing else.
+        XCTAssertEqual(r.fiveHour?.utilization, 21)
+        XCTAssertEqual(r.sevenDay?.utilization, 8)
+    }
+
+    func testAWeeklyShareFollowsItsLimitByPositionInTheRawArray() throws {
+        let json = """
+        {
+          "limits": [
+            {"percent": 5},
+            {"kind": "weekly_scoped", "percent": 10, "scope": {"model": {"display_name": "Fable"}}},
+            {"kind": "weekly_scoped", "percent": 20, "scope": {"model": {"display_name": "Opus"}}}
+          ],
+          "weekly_scoped_shares": [
+            {"limit_index": 1, "used_percent_of_weekly": 4, "allowance_percent_of_weekly": 40},
+            {"limit_index": 0, "allowance_percent_of_weekly": 99},
+            {"limit_index": 2, "allowance_percent_of_weekly": "half"},
+            {"limit_index": 7, "allowance_percent_of_weekly": 70},
+            {"allowance_percent_of_weekly": 30},
+            "not an entry"
+          ]
+        }
+        """
+        let r = try decode(UsageResponse.self, json)
+        // The malformed first limit is dropped, and Fable is still entry 1 of the raw array: its
+        // share is 40, not the 99 of the entry that names the dropped one.
+        XCTAssertEqual(r.scopedModelWindows.map(\.weeklyAllowancePercent), [40, nil])
+        XCTAssertEqual(weeklySharesSignature(r), "Fable:allow=40,used=4,percent=10 Opus:allow=nil,used=nil,percent=20")
+    }
+
     // MARK: - AccountInfo
 
     func testAccountInfoDecodesMembershipsAndTier() throws {

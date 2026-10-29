@@ -268,7 +268,8 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 17 * s) {
             ForEach(usage.trackedWindows.filter { viewModel.showModelWindows || !$0.isModelScoped }) { tracked in
                 windowRow(title: tracked.title, window: tracked.window,
-                          paceKey: tracked.key, includeResetDate: tracked.isSevenDay)
+                          paceKey: tracked.key, includeResetDate: tracked.isSevenDay,
+                          weeklyAllowance: tracked.weeklyAllowancePercent)
             }
         }
 
@@ -313,7 +314,7 @@ struct MenuBarView: View {
     /// Single pipeline for every usage row (standard windows, legacy Sonnet, scoped
     /// models): stale check, ≥100 %/stale pace suppression, then the row view.
     private func windowRow(title: String, window: UsageWindow,
-                           paceKey: String, includeResetDate: Bool) -> some View {
+                           paceKey: String, includeResetDate: Bool, weeklyAllowance: Double? = nil) -> some View {
         let windowIsStale = viewModel.isWindowStale(window)
         let suppressPace = window.utilization >= 100 || windowIsStale
         let pace = (viewModel.showPace && !suppressPace) ? viewModel.pace(for: paceKey) : nil
@@ -326,7 +327,8 @@ struct MenuBarView: View {
             paceRateUnit: viewModel.paceRateUnit,
             isStale: windowIsStale,
             use24Hour: viewModel.use24HourTime,
-            includeResetDate: includeResetDate
+            includeResetDate: includeResetDate,
+            weeklyAllowance: weeklyAllowance
         )
     }
 
